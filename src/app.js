@@ -182,8 +182,11 @@ async function saveWorkout() {
   }
 }
 
+/** Clears the backup; if storage refuses, the rider is told (after any message already shown). */
 function clearBackup() {
-  if (!recovery.clear()) info(MESSAGES.backupStuck);
+  if (recovery.clear()) return;
+  const before = s.message?.text;
+  info(before ? `${before} ${MESSAGES.backupStuck}` : MESSAGES.backupStuck);
 }
 
 async function saveOnce() {
