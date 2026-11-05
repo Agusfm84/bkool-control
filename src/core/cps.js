@@ -32,6 +32,11 @@ export function parse(view, prev, nowMs) {
     const cadence = nowMs - prev.changedAtMs > STALE_MS ? 0 : prev.cadence;
     return { watts, cadence, crank: { ...prev, cadence } };
   }
+  if (nowMs - prev.changedAtMs > STALE_MS) {
+    // First pedal stroke after a stop: the interval spans the whole stop, so it would give a
+    // bogus low cadence. Restart the measurement from this event instead.
+    return { watts, cadence: 0, crank: { revs, time, changedAtMs: nowMs, cadence: 0 } };
+  }
   const cadence = Math.round((dRevs * 60 * 1024) / dTime);
   return { watts, cadence, crank: { revs, time, changedAtMs: nowMs, cadence } };
 }

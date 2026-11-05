@@ -68,3 +68,14 @@ test("optional fields before crank data are skipped (balance, torque, wheel)", (
   const b = parse(bytes(6, 512), a.crank, 500); // 1 rev in 0.5 s = 120 rpm
   assert.equal(b.cadence, 120);
 });
+
+test("first crank event after a stop restarts the measurement instead of averaging the stop", () => {
+  const a = parse(crank(10, 1024), null, 0);
+  const b = parse(crank(11, 1792), a.crank, 750); // 80 rpm
+  const stopped = parse(crank(11, 1792), b.crank, 4000); // > 3 s without change
+  assert.equal(stopped.cadence, 0);
+  const resumed = parse(crank(12, 1792 + 10240), stopped.crank, 14000); // 10 s later, 1 rev
+  assert.equal(resumed.cadence, 0); // not the bogus 6 rpm averaged over the stop
+  const next = parse(crank(13, 1792 + 10240 + 768), resumed.crank, 14750);
+  assert.equal(next.cadence, 80);
+});
