@@ -12,6 +12,13 @@ import {
 
 const hex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 const settle = () => new Promise((r) => setImmediate(r));
+/** Lets time pass in small steps, so timers scheduled after an await are reached too. */
+async function run(clock, ms, step = 50) {
+  for (let t = 0; t < ms; t += step) {
+    await settle();
+    await clock.advance(step);
+  }
+}
 
 async function connected() {
   const bike = fakeBkoolBike();
@@ -344,4 +351,82 @@ test("a screen listener that throws does not stop the bike from reconnecting", a
   device.simulateLinkLoss();
   await clock.advance(1000);
   assert.deepEqual(events, ["lost", "back"]);
+});
+
+test("reconnect waits grow 1, 2, 4, 8, 10, 10 s (never more than 10 s)", async () => {
+  const { device, clock, conn } = await connected();
+  conn.onLinkChange(() => {});
+  device.gatt.failNextConnects = 99;
+  const before = device.connectCalls;
+  device.simulateLinkLoss();
+  for (const [i, wait] of [1000, 2000, 4000, 8000, 10000, 10000, 10000].entries()) {
+    await clock.advance(wait - 1);
+    assert.equal(device.connectCalls, before + i, `before attempt ${i + 1}`);
+    await clock.advance(1);
+    assert.equal(device.connectCalls, before + i + 1, `attempt ${i + 1}`);
+  }
+});
+
+test("disconnect waits for a write in flight and keeps the gap before the safe order", async () => {
+  const { conn, write, clock } = await connected();
+  let release;
+  const realWrite = write.writeValueWithoutResponse.bind(write);
+  let calls = 0;
+  write.writeValueWithoutResponse = (bytes) => {
+    calls++;
+    if (calls === 1) {
+      return new Promise((resolve) => {
+        release = () => resolve(realWrite(bytes));
+      });
+    }
+    return realWrite(bytes);
+  };
+  conn.send(trackResistance(12));
+  const started = clock.advance(0); // write of level 13 starts and hangs (the fake clock awaits it)
+  await settle();
+  const done = conn.disconnect();
+  await settle();
+  assert.equal(calls, 1, "no second write while the first is in flight");
+  release();
+  await started;
+  await run(clock, 500);
+  await done;
+  assert.deepEqual(write.writes.map(hex), [hex(trackResistance(12)), hex(trackResistance(0))]);
+});
+
+test("a failed safe order is retried before the link is closed", async () => {
+  const { conn, write, device, clock } = await connected();
+  write.failNextWrites = 2;
+  const done = conn.disconnect();
+  await run(clock, 1000);
+  await done;
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(0)));
+  assert.equal(device.gatt.connected, false);
+});
+
+test("disconnect drops an order not yet written; while the link is down it writes nothing", async () => {
+  const a = await connected();
+  a.conn.send(trackResistance(1));
+  await a.clock.advance(300);
+  a.conn.send(trackResistance(15)); // queued inside the 250 ms gap
+  const d = a.conn.disconnect();
+  await run(a.clock, 1000);
+  await d;
+  assert.ok(!a.write.writes.map(hex).includes(hex(trackResistance(15))));
+
+  const b = await connected();
+  b.device.gatt.failNextConnects = 99;
+  b.device.simulateLinkLoss();
+  const writes = b.write.writes.length;
+  await b.conn.disconnect();
+  assert.equal(b.write.writes.length, writes);
+});
+
+test("a disconnect that never settles still closes the link after a short wait", async () => {
+  const { conn, write, device, clock } = await connected();
+  write.writeValueWithoutResponse = () => new Promise(() => {}); // stalled radio
+  const done = conn.disconnect();
+  await run(clock, 3000);
+  await done;
+  assert.equal(device.gatt.connected, false);
 });

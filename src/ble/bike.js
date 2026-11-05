@@ -13,6 +13,8 @@ const BKOOL_NOTIFY_6 = "f03ee006-4910-473c-be46-960948c2f59c";
 export const MIN_WRITE_GAP_MS = 250;
 /** Waits between reconnect attempts after a lost link: 1 s, 2 s, 4 s, 8 s, then 10 s for ever. */
 export const RECONNECT_WAITS_MS = [1000, 2000, 4000, 8000, 10000];
+/** Longest wait for the safe order on disconnect before the link is closed anyway. */
+export const DISCONNECT_TIMEOUT_MS = 2000;
 /** Times a failed write is retried before the order is dropped. */
 const MAX_WRITE_RETRIES = 3;
 
@@ -163,6 +165,10 @@ export async function connectBike({
         device.gatt.disconnect();
         return;
       }
+      if (device.gatt.connected === false) {
+        scheduleReconnect(attempt + 1); // dropped again while setting up: keep trying
+        return;
+      }
       linkDown = false;
       emit("link", "back");
       if (lastOrder) {
@@ -198,6 +204,7 @@ export async function connectBike({
   let retries = 0;
   let timer = null;
   let lastWriteAt = Number.NEGATIVE_INFINITY;
+  let inFlight = null; // the write currently on its way to the bike, if any
   let writeSeq = 0; // increases on every write attempt; a late failure of an older write is ignored
 
   async function flush() {
@@ -208,7 +215,8 @@ export async function connectBike({
     lastWriteAt = clock.now();
     const mySeq = ++writeSeq;
     try {
-      await writeChar.writeValueWithoutResponse(order);
+      inFlight = writeChar.writeValueWithoutResponse(order);
+      await inFlight;
       retries = 0;
       emit("write", order, true);
     } catch {
@@ -220,7 +228,33 @@ export async function connectBike({
         emit("write", order, false);
       }
     }
+    inFlight = null;
     if (pending) schedule();
+  }
+
+  const sleep = (ms) => new Promise((resolve) => clock.setTimeout(resolve, ms));
+
+  /** The safe order, sent like any other: after a write in flight, respecting the gap, retried. */
+  async function writeSafeOrder() {
+    const order = trackResistance(0);
+    try {
+      await inFlight;
+    } catch {
+      // the previous order failed; the safe order goes anyway
+    }
+    for (let attempt = 0; attempt <= MAX_WRITE_RETRIES; attempt++) {
+      const wait = Math.max(0, lastWriteAt + MIN_WRITE_GAP_MS - clock.now());
+      if (wait > 0) await sleep(wait);
+      lastWriteAt = clock.now();
+      try {
+        await writeChar.writeValueWithoutResponse(order);
+        emit("write", order, true);
+        return;
+      } catch {
+        // retry
+      }
+    }
+    emit("write", order, false);
   }
 
   function schedule() {
@@ -260,12 +294,12 @@ export async function connectBike({
       retryTimer = null;
       pending = null;
       if (!linkDown) {
-        try {
-          await writeChar.writeValueWithoutResponse(trackResistance(0));
-          emit("write", trackResistance(0), true);
-        } catch {
-          // the link is going away anyway; nothing else to do
-        }
+        let timeoutId = null;
+        const timeout = new Promise((resolve) => {
+          timeoutId = clock.setTimeout(resolve, DISCONNECT_TIMEOUT_MS);
+        });
+        await Promise.race([writeSafeOrder(), timeout]);
+        clock.clearTimeout(timeoutId);
       }
       device.gatt.disconnect();
     },
