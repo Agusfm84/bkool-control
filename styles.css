@@ -1,0 +1,482 @@
+/* Bkool Control — riding screen. One hue (power orange) on data and the active mode; neutrals
+   everywhere else. Light and dark follow the phone. Numbers use tabular figures so they do not
+   jump while they change. */
+
+:root {
+  color-scheme: light dark;
+  --ground: #f1f1ef;
+  --surface: #ffffff;
+  --line: #e2e2df;
+  --ink: #161514;
+  --ink-2: #5f5b55;
+  --ink-3: #8c877f;
+  --power: #e8590c;
+  --power-ink: #ffffff;
+  --power-soft: #fde8dc;
+  --good: #2b8a3e;
+  --bad: #c92a2a;
+  --bad-soft: #fde2e2;
+  --tick: #d8d8d4;
+  --button: #e8e8e5;
+  --button-ink: #161514;
+  --radius: 16px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e0e0e;
+    --surface: #171717;
+    --line: #262626;
+    --ink: #f2f1ef;
+    --ink-2: #a8a49e;
+    --ink-3: #77736d;
+    --power: #ff7a2f;
+    --power-ink: #1a0b02;
+    --power-soft: #3a1d0c;
+    --good: #69db7c;
+    --bad: #ff6b6b;
+    --bad-soft: #3b1414;
+    --tick: #303030;
+    --button: #242424;
+    --button-ink: #f2f1ef;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 16px / 1.35 var(--font);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+button:focus-visible {
+  outline: 3px solid var(--power);
+  outline-offset: 2px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Frame ---------------------------------------------------------------------------- */
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100dvh;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--power);
+  color: var(--power-ink);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.mark svg {
+  width: 20px;
+  height: 20px;
+}
+
+.name {
+  font-weight: 650;
+  font-size: 18px;
+  margin: 0 auto 0 0;
+}
+
+.heart {
+  width: 11px;
+  height: 11px;
+  fill: var(--bad);
+  vertical-align: -1px;
+}
+
+.timer {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.timer[data-status="paused"] {
+  color: var(--ink-3);
+}
+
+/* Connection chips: a dot + word; tapping one connects that device. */
+.links {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.chip::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  flex: none;
+}
+
+.chip[data-state="on"] {
+  color: var(--ink);
+}
+
+.chip[data-state="on"]::before {
+  background: var(--good);
+}
+
+.chip[data-state="lost"]::before,
+.chip[data-state="connecting"]::before {
+  background: var(--power);
+  animation: blink 1s steps(2) infinite;
+}
+
+.chip[data-state="lost"]::before {
+  background: var(--bad);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ---- Banner ---------------------------------------------------------------------------- */
+
+.banner {
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.banner[data-kind="error"] {
+  background: var(--bad-soft);
+  border-color: transparent;
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.banner[hidden] {
+  display: none;
+}
+
+/* ---- Metrics --------------------------------------------------------------------------- */
+
+.metrics {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px 16px;
+}
+
+.power {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  color: var(--power);
+  line-height: 1;
+  padding: 4px 0 14px;
+}
+
+.power .value {
+  font-size: clamp(88px, 30vw, 128px);
+  font-weight: 750;
+}
+
+.power .unit {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.trio {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.trio > div {
+  text-align: center;
+}
+
+.trio > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.trio .value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.trio .label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.empty,
+.power.empty {
+  color: var(--ink-3);
+}
+
+/* ---- Control: mode, level, ladder, − / + -------------------------------------------------- */
+
+.control {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--button);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.modes button {
+  min-height: 44px;
+  border-radius: 9px;
+  background: transparent;
+  font-weight: 650;
+  font-size: 16px;
+  color: var(--ink-2);
+}
+
+.modes button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  outline: 1px solid var(--line);
+}
+
+.setting {
+  text-align: center;
+}
+
+.setting .big {
+  font-size: 34px;
+  font-weight: 750;
+  line-height: 1.1;
+}
+
+.setting .sub {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+/* The gear ladder: one tick per level (Cambios) or a 50-400 W rule (ERG). */
+.ladder {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  align-items: end;
+  gap: 3px;
+  height: 34px;
+}
+
+.ladder i {
+  display: block;
+  border-radius: 3px;
+  background: var(--tick);
+}
+
+.ladder i[data-on] {
+  background: var(--power);
+}
+
+.ladder i[data-current] {
+  background: var(--ink);
+}
+
+.press {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.press button {
+  min-height: 76px;
+  border-radius: 14px;
+  background: var(--button);
+  color: var(--button-ink);
+  font-size: 40px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.press button:active:not(:disabled) {
+  background: var(--power);
+  color: var(--power-ink);
+}
+
+/* ---- Workout buttons -------------------------------------------------------------------- */
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.actions button,
+.cta {
+  min-height: 56px;
+  border-radius: 14px;
+  font-weight: 650;
+  font-size: 17px;
+  background: var(--button);
+  color: var(--button-ink);
+}
+
+.actions .primary,
+.cta {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.actions .solo {
+  grid-column: 1 / -1;
+}
+
+.link {
+  background: none;
+  color: var(--ink-2);
+  font-size: 15px;
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- Start / message / summary panels ------------------------------------------------------ */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel h1,
+.panel h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.panel p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.stats > div {
+  background: var(--surface);
+  padding: 12px;
+}
+
+.stats .label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.stats .value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.stats .lead,
+.stats .wide {
+  grid-column: 1 / -1;
+}
+
+.stats .lead .value {
+  font-size: 34px;
+}
+
+.stats .power-stat .value {
+  color: var(--power);
+}
+
+[hidden],
+.panel[hidden],
+.banner[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip[data-state]::before {
+    animation: none;
+  }
+}
