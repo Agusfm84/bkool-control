@@ -97,11 +97,14 @@ $("#connect-any").addEventListener("click", () => connect(true));
 $("#list-only").addEventListener("click", async () => {
   if (!navigator.bluetooth) return log(MESSAGES.unsupported);
   log("solo lista: pidiendo la lista de aparatos…");
+  $("#list-only").disabled = true;
   try {
     const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
     log(`✔ solo lista: elegido "${device.name ?? "sin nombre"}"`);
   } catch (err) {
     log(`✖ solo lista: ${describe(err)}`);
+  } finally {
+    $("#list-only").disabled = false;
   }
 });
 

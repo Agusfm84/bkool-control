@@ -231,3 +231,15 @@ test("a cancelled chooser is not retried", async () => {
   await assert.rejects(connectBike({ bluetooth, clock: fakeClock() }), { kind: "cancelled" });
   assert.equal(bluetooth.requests.length, 1);
 });
+
+test("the chooser is retried only once: a second bare number fails while choosing", async () => {
+  const bike = fakeBkoolBike();
+  const bluetooth = fakeBluetooth(bike.device, { requestError: 2 });
+  const clock = fakeClock();
+  const pending = connectBike({ bluetooth, clock });
+  const outcome = assert.rejects(pending, { kind: "not-found", step: "choose", cause: 2 });
+  await settle();
+  await clock.advance(5000);
+  await outcome;
+  assert.equal(bluetooth.requests.length, 2);
+});
