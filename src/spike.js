@@ -59,6 +59,14 @@ $("#support").textContent = navigator.bluetooth
 
 /** Whatever the browser threw, as text: some browsers reject with values that are not Errors. */
 function describe(cause) {
+  try {
+    return describeUnsafe(cause);
+  } catch {
+    return "(error ilegible)";
+  }
+}
+
+function describeUnsafe(cause) {
   if (cause == null) return "(sin detalle)";
   if (typeof cause !== "object") return `${typeof cause}: ${String(cause)}`;
   const parts = [cause.name, cause.message, cause.code].filter((x) => x != null && x !== "");

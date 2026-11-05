@@ -88,8 +88,8 @@ export async function connectBike({
     }
   }
 
+  let step = "connect"; // last step reached, reported when set-up fails
   /** Connects and subscribes. Safe to call again after a lost link (used by reconnect). */
-  let step = "connect";
   async function setUp() {
     crank = null;
     bkoolCadence = null;
