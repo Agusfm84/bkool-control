@@ -32,8 +32,10 @@ test("a missing time shows 00:00, never NaN", () => {
 
 test("connection chips say the device and what a tap does", () => {
   assert.deepEqual(chip("bike", "off"), { text: "Conectar bici", action: "bike" });
-  assert.deepEqual(chip("bike", "on"), { text: "Bici conectada", action: "bike-off" });
-  assert.deepEqual(chip("bike", "lost"), { text: "Bici sin conexión", action: "bike-off" });
+  // A stray tap on the connected bike must not disconnect it mid-ride: the chip only informs;
+  // "Desconectar bici" is its own, confirmed control.
+  assert.deepEqual(chip("bike", "on"), { text: "Bici conectada", action: null });
+  assert.deepEqual(chip("bike", "lost"), { text: "Bici sin conexión", action: null });
   assert.deepEqual(chip("strap", "connecting"), { text: "Buscando pulsómetro…", action: null });
   assert.deepEqual(chip("strap", "on"), { text: "Pulso conectado", action: "strap-off" });
 });

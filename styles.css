@@ -169,6 +169,10 @@ button:focus-visible {
   flex: none;
 }
 
+.chip:disabled {
+  opacity: 1; /* a chip with nothing to do still informs; it is not "off" */
+}
+
 .chip[data-state="on"] {
   color: var(--ink);
 }
@@ -212,8 +216,15 @@ button:focus-visible {
   color: #ffffff;
 }
 
+/* Quiet: kept rendered (so screen readers announce the next message) but takes no room. */
 .banner[data-kind="none"] {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 /* ---- Metrics --------------------------------------------------------------------------- */

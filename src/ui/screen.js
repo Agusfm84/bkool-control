@@ -55,8 +55,8 @@ const CHIPS = {
   bike: {
     off: ["Conectar bici", "bike"],
     connecting: ["Buscando bici…", null],
-    on: ["Bici conectada", "bike-off"],
-    lost: ["Bici sin conexión", "bike-off"],
+    on: ["Bici conectada", null],
+    lost: ["Bici sin conexión", null],
   },
   strap: {
     off: ["Conectar pulsómetro", "strap"],
@@ -87,7 +87,7 @@ const TEMPLATE = `
   <button class="chip" type="button" data-action="bike" data-ref="bikeChip"></button>
   <button class="chip" type="button" data-action="strap" data-ref="strapChip"></button>
 </nav>
-<div class="banner" data-ref="banner" role="status"></div>
+<div class="banner" data-ref="banner" aria-live="assertive" aria-atomic="true"></div>
 
 <section class="panel" data-page="unsupported" hidden>
   <h2>Este navegador no permite Bluetooth</h2>
@@ -225,13 +225,13 @@ export function createScreen(root, onAction) {
       el.dataset.state = v[key];
       el.textContent = c.text;
       if (c.action) el.dataset.action = c.action;
+      else delete el.dataset.action;
       el.disabled = v.page === "unsupported" || !c.action;
     }
 
     // The live region stays in the page (empty when quiet) so screen readers announce changes.
     ref.banner.textContent = v.banner ? v.banner.text : "";
     ref.banner.dataset.kind = v.banner ? v.banner.kind : "none";
-    ref.banner.setAttribute("role", v.banner?.kind === "error" ? "alert" : "status");
 
     if (v.page === "riding") {
       ref.watts.textContent = show(v.watts);
@@ -257,7 +257,7 @@ export function createScreen(root, onAction) {
         tick.toggleAttribute("data-on", i < lit - 1);
         tick.toggleAttribute("data-current", i === lit - 1);
       });
-      const live = v.bike === "on";
+      const live = v.bike === "on" && !v.confirm; // nothing changes behind an open question
       ref.minus.disabled = !live || !v.canMinus;
       ref.plus.disabled = !live || !v.canPlus;
       ref.gearsBtn.disabled = !live;
@@ -278,7 +278,8 @@ export function createScreen(root, onAction) {
       ref.confirmText.textContent = v.confirm.text;
       ref.confirmYes.textContent = v.confirm.yes;
     }
-    ref.disconnect.hidden = !(v.page === "riding" && (v.bike === "on" || v.bike === "lost"));
+    ref.disconnect.hidden =
+      Boolean(v.confirm) || !(v.page === "riding" && (v.bike === "on" || v.bike === "lost"));
 
     const actions = v.page === "riding" && !v.confirm ? (ACTIONS[v.status] ?? []) : [];
     const key = `${v.status}|${v.page}|${v.bike}|${Boolean(v.confirm)}`;
