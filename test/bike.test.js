@@ -389,7 +389,9 @@ test("disconnect waits for a write in flight and keeps the gap before the safe o
   assert.equal(calls, 1, "no second write while the first is in flight");
   release();
   await started;
-  await run(clock, 500);
+  await run(clock, 200);
+  assert.equal(write.writes.length, 1, "the safe order waits the 250 ms gap");
+  await run(clock, 300);
   await done;
   assert.deepEqual(write.writes.map(hex), [hex(trackResistance(12)), hex(trackResistance(0))]);
 });
@@ -408,7 +410,7 @@ test("disconnect drops an order not yet written; while the link is down it write
   const a = await connected();
   a.conn.send(trackResistance(1));
   await a.clock.advance(300);
-  a.conn.send(trackResistance(15)); // queued inside the 250 ms gap
+  a.conn.send(trackResistance(15)); // queued, not yet written when disconnect() is called
   const d = a.conn.disconnect();
   await run(a.clock, 1000);
   await d;
@@ -429,4 +431,40 @@ test("a disconnect that never settles still closes the link after a short wait",
   await run(clock, 3000);
   await done;
   assert.equal(device.gatt.connected, false);
+});
+
+test("disconnect while the reconnect set-up is under way still leaves the bike at level 1", async () => {
+  const { conn, device, write, clock } = await connected();
+  device.gatt.failNextConnects = 99;
+  device.simulateLinkLoss();
+  device.gatt.connected = true; // connect() resolved; services still being set up
+  const done = conn.disconnect();
+  await run(clock, 1000);
+  await done;
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(0)));
+});
+
+test("after a disconnect times out, the safe order is not retried on the closed link", async () => {
+  const { conn, write, clock } = await connected();
+  let rejectSlow;
+  const realWrite = write.writeValueWithoutResponse.bind(write);
+  write.writeValueWithoutResponse = () =>
+    new Promise((_, reject) => {
+      rejectSlow = reject;
+    });
+  const done = conn.disconnect();
+  await run(clock, 2500); // timeout wins
+  await done;
+  write.writeValueWithoutResponse = realWrite;
+  rejectSlow(new Error("late failure"));
+  await run(clock, 2000);
+  assert.equal(write.writes.length, 0, "no write after the link was closed");
+  assert.equal(clock.pendingTimers(), 0, "no timer left behind");
+});
+
+test("a second disconnect waits for the first one", async () => {
+  const { conn } = await connected();
+  const first = conn.disconnect();
+  assert.equal(conn.disconnect(), first);
+  await first;
 });

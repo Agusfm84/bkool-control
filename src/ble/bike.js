@@ -220,7 +220,7 @@ export async function connectBike({
       retries = 0;
       emit("write", order, true);
     } catch {
-      if (mySeq === writeSeq && !pending && retries < MAX_WRITE_RETRIES) {
+      if (!closing && mySeq === writeSeq && !pending && retries < MAX_WRITE_RETRIES) {
         retries++;
         pending = order;
       } else {
@@ -232,7 +232,15 @@ export async function connectBike({
     if (pending) schedule();
   }
 
-  const sleep = (ms) => new Promise((resolve) => clock.setTimeout(resolve, ms));
+  let safeAborted = false; // set when disconnect() gave up waiting: stop touching the link
+  let sleepTimer = null;
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      sleepTimer = clock.setTimeout(() => {
+        sleepTimer = null;
+        resolve();
+      }, ms);
+    });
 
   /** The safe order, sent like any other: after a write in flight, respecting the gap, retried. */
   async function writeSafeOrder() {
@@ -243,24 +251,50 @@ export async function connectBike({
       // the previous order failed; the safe order goes anyway
     }
     for (let attempt = 0; attempt <= MAX_WRITE_RETRIES; attempt++) {
+      if (safeAborted) return;
       const wait = Math.max(0, lastWriteAt + MIN_WRITE_GAP_MS - clock.now());
       if (wait > 0) await sleep(wait);
+      if (safeAborted) return;
       lastWriteAt = clock.now();
       try {
         await writeChar.writeValueWithoutResponse(order);
-        emit("write", order, true);
+        if (!safeAborted) emit("write", order, true);
         return;
       } catch {
         // retry
       }
     }
-    emit("write", order, false);
+    if (!safeAborted) emit("write", order, false);
   }
 
   function schedule() {
-    if (timer !== null) return;
+    if (timer !== null || closing) return;
     const wait = Math.max(0, lastWriteAt + MIN_WRITE_GAP_MS - clock.now());
     timer = clock.setTimeout(flush, wait);
+  }
+
+  let disconnecting = null; // the one disconnect in progress; later calls share it
+
+  async function closeSafely() {
+    closing = true;
+    if (timer !== null) clock.clearTimeout(timer);
+    if (retryTimer !== null) clock.clearTimeout(retryTimer);
+    timer = null;
+    retryTimer = null;
+    pending = null;
+    // The GATT link may be up even while the reconnect set-up is still running.
+    if (device.gatt.connected && writeChar) {
+      let timeoutId = null;
+      const timeout = new Promise((resolve) => {
+        timeoutId = clock.setTimeout(resolve, DISCONNECT_TIMEOUT_MS);
+      });
+      await Promise.race([writeSafeOrder(), timeout]);
+      clock.clearTimeout(timeoutId);
+      safeAborted = true;
+      if (sleepTimer !== null) clock.clearTimeout(sleepTimer);
+      sleepTimer = null;
+    }
+    device.gatt.disconnect();
   }
 
   return {
@@ -285,23 +319,9 @@ export async function connectBike({
       schedule();
     },
     /** Leaves the bike at level 1 (slope 0 %), then closes the link. Never throws. */
-    async disconnect() {
-      if (closing) return;
-      closing = true;
-      if (timer !== null) clock.clearTimeout(timer);
-      if (retryTimer !== null) clock.clearTimeout(retryTimer);
-      timer = null;
-      retryTimer = null;
-      pending = null;
-      if (!linkDown) {
-        let timeoutId = null;
-        const timeout = new Promise((resolve) => {
-          timeoutId = clock.setTimeout(resolve, DISCONNECT_TIMEOUT_MS);
-        });
-        await Promise.race([writeSafeOrder(), timeout]);
-        clock.clearTimeout(timeoutId);
-      }
-      device.gatt.disconnect();
+    disconnect() {
+      if (!disconnecting) disconnecting = closeSafely();
+      return disconnecting;
     },
   };
 }
