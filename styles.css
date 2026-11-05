@@ -138,7 +138,7 @@ button:focus-visible {
 }
 
 .timer[data-status="paused"] {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* Connection chips: a dot + word; tapping one connects that device. */
@@ -204,13 +204,15 @@ button:focus-visible {
 }
 
 .banner[data-kind="error"] {
-  background: var(--bad-soft);
+  font-size: 17px;
+  font-weight: 650;
+  padding: 14px 16px;
+  background: var(--bad);
   border-color: transparent;
-  color: var(--bad);
-  font-weight: 600;
+  color: #ffffff;
 }
 
-.banner[hidden] {
+.banner[data-kind="none"] {
   display: none;
 }
 
@@ -239,7 +241,7 @@ button:focus-visible {
 }
 
 .power .unit {
-  font-size: 22px;
+  font-size: 30px;
   font-weight: 650;
 }
 
@@ -265,7 +267,7 @@ button:focus-visible {
 }
 
 .trio .label {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--ink-2);
 }
 
@@ -320,8 +322,8 @@ button:focus-visible {
 }
 
 .setting .sub {
-  font-size: 14px;
-  color: var(--ink-2);
+  font-size: 16px;
+  color: var(--ink);
 }
 
 /* The gear ladder: one tick per level (Cambios) or a 50-400 W rule (ERG). */
@@ -344,7 +346,9 @@ button:focus-visible {
 }
 
 .ladder i[data-current] {
-  background: var(--ink);
+  background: var(--power);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
 }
 
 .press {
@@ -354,11 +358,11 @@ button:focus-visible {
 }
 
 .press button {
-  min-height: 76px;
+  min-height: 96px;
   border-radius: 14px;
   background: var(--button);
   color: var(--button-ink);
-  font-size: 40px;
+  font-size: 48px;
   font-weight: 500;
   line-height: 1;
 }
@@ -391,6 +395,12 @@ button:focus-visible {
 .cta {
   background: var(--ink);
   color: var(--ground);
+}
+
+.actions .quiet {
+  background: transparent;
+  border: 1.5px solid var(--line);
+  color: var(--ink-2);
 }
 
 .actions .solo {
@@ -470,8 +480,7 @@ button:focus-visible {
 }
 
 [hidden],
-.panel[hidden],
-.banner[hidden] {
+.panel[hidden] {
   display: none;
 }
 
@@ -479,4 +488,28 @@ button:focus-visible {
   .chip[data-state]::before {
     animation: none;
   }
+}
+
+.paused-tag {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.panel .confirm-text {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.actions .danger {
+  background: var(--bad);
+  color: #ffffff;
+}
+
+.link[data-action="bike-off"] {
+  align-self: center;
 }

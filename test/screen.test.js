@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatTime, ladderFill, show } from "../src/ui/screen.js";
+import { chip, formatTime, ladderFill, show } from "../src/ui/screen.js";
 
 test("time shows mm:ss under an hour and h:mm:ss over", () => {
   assert.equal(formatTime(0), "00:00");
@@ -23,4 +23,17 @@ test("the ladder lights one tick per level, and ERG by the target's place in 50-
   assert.equal(ladderFill("erg", 5, 50), 1);
   assert.equal(ladderFill("erg", 5, 400), 20);
   assert.equal(ladderFill("erg", 5, 230), 11); // (180/350)*19 = 9.8 → 10, +1
+});
+
+test("a missing time shows 00:00, never NaN", () => {
+  assert.equal(formatTime(undefined), "00:00");
+  assert.equal(formatTime(Number.NaN), "00:00");
+});
+
+test("connection chips say the device and what a tap does", () => {
+  assert.deepEqual(chip("bike", "off"), { text: "Conectar bici", action: "bike" });
+  assert.deepEqual(chip("bike", "on"), { text: "Bici conectada", action: "bike-off" });
+  assert.deepEqual(chip("bike", "lost"), { text: "Bici sin conexión", action: "bike-off" });
+  assert.deepEqual(chip("strap", "connecting"), { text: "Buscando pulsómetro…", action: null });
+  assert.deepEqual(chip("strap", "on"), { text: "Pulso conectado", action: "strap-off" });
 });

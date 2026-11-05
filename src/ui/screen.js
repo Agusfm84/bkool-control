@@ -1,3 +1,5 @@
+import { ERG_MAX, ERG_MIN, LEVEL_MAX } from "../core/control.js";
+
 // The riding screen. It only draws a "view" object and reports taps; it decides nothing.
 // All text the rider sees is Spanish. Values arrive already computed by app.js.
 
@@ -21,15 +23,12 @@
  * @property {{durationS:number, avgW:number, maxW:number, avgCad:number, avgHr:number|null,
  *   maxHr:number|null}|null} summary
  * @property {boolean} canSave
+ * @property {{text:string, yes:string}|null} [confirm]  a question before finish/discard
  */
-
-export const LEVEL_MAX = 20;
-export const ERG_MIN = 50;
-export const ERG_MAX = 400;
 
 /** "1:02:05" over an hour, "02:05" under. Pure, exported for tests. */
 export function formatTime(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
@@ -52,10 +51,26 @@ export function ladderFill(mode, level, ergTarget) {
   return level;
 }
 
-const CHIP_TEXT = {
-  bike: { off: "Conectar bici", connecting: "Buscando…", on: "Bici", lost: "Bici" },
-  strap: { off: "Pulsómetro", connecting: "Buscando…", on: "Pulso", lost: "Pulso" },
+const CHIPS = {
+  bike: {
+    off: ["Conectar bici", "bike"],
+    connecting: ["Buscando bici…", null],
+    on: ["Bici conectada", "bike-off"],
+    lost: ["Bici sin conexión", "bike-off"],
+  },
+  strap: {
+    off: ["Conectar pulsómetro", "strap"],
+    connecting: ["Buscando pulsómetro…", null],
+    on: ["Pulso conectado", "strap-off"],
+    lost: ["Pulso sin conexión", "strap-off"],
+  },
 };
+
+/** What a connection chip says and what tapping it asks for (null = nothing to do). */
+export function chip(device, state) {
+  const [text, action] = CHIPS[device][state];
+  return { text, action };
+}
 
 const MARK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -66,13 +81,13 @@ const TEMPLATE = `
 <header class="bar">
   <span class="mark">${MARK}</span>
   <h1 class="name">Bkool Control</h1>
-  <span class="timer num" data-ref="timer" aria-label="Tiempo de entrenamiento">00:00</span>
+  <span class="timer num" data-ref="timer" role="timer" aria-label="Tiempo de entrenamiento">00:00</span>
 </header>
 <nav class="links" aria-label="Conexiones">
   <button class="chip" type="button" data-action="bike" data-ref="bikeChip"></button>
   <button class="chip" type="button" data-action="strap" data-ref="strapChip"></button>
 </nav>
-<div class="banner" data-ref="banner" role="status" hidden></div>
+<div class="banner" data-ref="banner" role="status"></div>
 
 <section class="panel" data-page="unsupported" hidden>
   <h2>Este navegador no permite Bluetooth</h2>
@@ -96,6 +111,7 @@ const TEMPLATE = `
 
 <div data-page="riding" hidden>
   <section class="metrics" aria-label="Datos en directo">
+    <div class="paused-tag" data-ref="pausedTag" hidden>En pausa</div>
     <div class="power"><span class="value num" data-ref="watts">--</span><span class="unit">W</span></div>
     <div class="trio">
       <div><div class="value num" data-ref="cadence">--</div><div class="label">rpm</div></div>
@@ -129,18 +145,26 @@ const TEMPLATE = `
   <button class="link" type="button" data-action="discard">Descartar y volver</button>
 </section>
 
+<section class="panel confirm" data-ref="confirm" hidden>
+  <p class="confirm-text" data-ref="confirmText"></p>
+  <div class="actions">
+    <button type="button" data-action="cancel" class="primary">No, seguir</button>
+    <button type="button" data-action="confirm" class="danger" data-ref="confirmYes"></button>
+  </div>
+</section>
 <footer class="actions" data-ref="actions"></footer>
+<button class="link" type="button" data-action="bike-off" data-ref="disconnect" hidden>Desconectar bici</button>
 `;
 
 const ACTIONS = {
   idle: [["start", "Empezar", "primary solo"]],
   running: [
-    ["pause", "Pausa", ""],
-    ["finish", "Terminar", "primary"],
+    ["pause", "Pausa", "primary"],
+    ["finish", "Terminar", "quiet"],
   ],
   paused: [
     ["resume", "Seguir", "primary"],
-    ["finish", "Terminar", ""],
+    ["finish", "Terminar", "quiet"],
   ],
 };
 
@@ -165,8 +189,8 @@ function statsHtml(s) {
 /**
  * Builds the screen inside `root` and returns {render(view)}.
  * @param {HTMLElement} root
- * @param {(action:string)=>void} onAction  called with: bike, strap, gears, erg, minus, plus,
- *   start, pause, resume, finish, save, discard
+ * @param {(action:string)=>void} onAction  called with: bike, bike-off, strap, strap-off, gears,
+ *   erg, minus, plus, start, pause, resume, finish, save, discard, confirm, cancel
  */
 export function createScreen(root, onAction) {
   root.innerHTML = TEMPLATE;
@@ -193,24 +217,28 @@ export function createScreen(root, onAction) {
     ref.timer.textContent = formatTime(v.timeMs);
     ref.timer.dataset.status = v.status;
 
-    for (const [key, chip] of [
+    for (const [key, el] of [
       ["bike", ref.bikeChip],
       ["strap", ref.strapChip],
     ]) {
-      chip.dataset.state = v[key];
-      chip.textContent = CHIP_TEXT[key][v[key]];
-      chip.disabled = v.page === "unsupported" || v[key] === "connecting";
+      const c = chip(key, v[key]);
+      el.dataset.state = v[key];
+      el.textContent = c.text;
+      if (c.action) el.dataset.action = c.action;
+      el.disabled = v.page === "unsupported" || !c.action;
     }
 
-    ref.banner.hidden = !v.banner;
-    if (v.banner) {
-      ref.banner.dataset.kind = v.banner.kind;
-      ref.banner.textContent = v.banner.text;
-    }
+    // The live region stays in the page (empty when quiet) so screen readers announce changes.
+    ref.banner.textContent = v.banner ? v.banner.text : "";
+    ref.banner.dataset.kind = v.banner ? v.banner.kind : "none";
+    ref.banner.setAttribute("role", v.banner?.kind === "error" ? "alert" : "status");
 
     if (v.page === "riding") {
       ref.watts.textContent = show(v.watts);
-      ref.watts.parentElement.classList.toggle("empty", v.watts == null);
+      const paused = v.status === "paused";
+      ref.watts.parentElement.classList.toggle("empty", v.watts == null || paused);
+      ref.pausedTag.hidden = !paused;
+      ref.ladder.hidden = v.mode === "erg"; // in ERG the bike sets the resistance: no ladder
       ref.cadence.textContent = show(v.cadence);
       ref.speed.textContent = show(v.speedKmh, 1);
       ref.hr.textContent = show(v.hr);
@@ -219,7 +247,7 @@ export function createScreen(root, onAction) {
       ref.ergBtn.setAttribute("aria-pressed", String(v.mode === "erg"));
       if (v.mode === "erg") {
         ref.settingBig.textContent = `Objetivo ${v.ergTarget} W`;
-        ref.settingSub.textContent = "La bici ajusta la dureza a tu cadencia";
+        ref.settingSub.textContent = "±10 W por toque · la bici ajusta la dureza";
       } else {
         ref.settingBig.textContent = `Nivel ${v.level} / ${LEVEL_MAX}`;
         ref.settingSub.textContent = `Pendiente ${v.level - 1} %`;
@@ -245,8 +273,15 @@ export function createScreen(root, onAction) {
     ref.summarySave.disabled = !v.canSave;
     ref.recoveredSave.disabled = !v.canSave;
 
-    const actions = v.page === "riding" ? (ACTIONS[v.status] ?? []) : [];
-    const key = `${v.status}|${v.page}|${v.bike}`;
+    ref.confirm.hidden = !v.confirm;
+    if (v.confirm) {
+      ref.confirmText.textContent = v.confirm.text;
+      ref.confirmYes.textContent = v.confirm.yes;
+    }
+    ref.disconnect.hidden = !(v.page === "riding" && (v.bike === "on" || v.bike === "lost"));
+
+    const actions = v.page === "riding" && !v.confirm ? (ACTIONS[v.status] ?? []) : [];
+    const key = `${v.status}|${v.page}|${v.bike}|${Boolean(v.confirm)}`;
     if (key !== lastActions) {
       ref.actions.replaceChildren(
         ...actions.map(([action, text, cls]) => {

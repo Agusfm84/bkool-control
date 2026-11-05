@@ -47,6 +47,7 @@ const STATES = {
     summary,
     canSave: true,
   },
+  confirmFinish: { confirm: { text: "¿Terminar el entrenamiento?", yes: "Sí, terminar" } },
   unsupported: { page: "unsupported", bike: "off", strap: "off", status: "idle", timeMs: 0 },
 };
 
