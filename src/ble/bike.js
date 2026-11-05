@@ -31,8 +31,9 @@ const defaultClock = {
   clearTimeout: (id) => globalThis.clearTimeout(id),
 };
 
-function failure(kind, cause) {
-  return { kind, cause };
+/** step: where it failed (choose, connect, bkool-service, power-service, …) for the spike log. */
+function failure(kind, cause, step) {
+  return { kind, cause, step };
 }
 
 /**
@@ -58,7 +59,7 @@ export async function connectBike({
     if (err?.name === "SecurityError" || err?.name === "NotSupportedError") {
       throw failure("unsupported", err);
     }
-    throw failure("not-found", err);
+    throw failure("not-found", err, "choose");
   }
 
   const listeners = { data: [], raw: [], link: [], write: [] };
@@ -82,24 +83,32 @@ export async function connectBike({
     } else if (uuid === POWER_UUID) {
       const r = cps.parse(view, crank, clock.now());
       crank = r.crank;
-      emit("data", { watts: r.watts, cadence: r.cadence ?? bkoolCadence });
+      // The Bkool's own channel first: on the real bike the standard crank data is always 0.
+      emit("data", { watts: r.watts, cadence: bkoolCadence ?? r.cadence });
     }
   }
 
   /** Connects and subscribes. Safe to call again after a lost link (used by reconnect). */
+  let step = "connect";
   async function setUp() {
     crank = null;
     bkoolCadence = null;
+    step = "connect";
     const server = await device.gatt.connect();
+    step = "bkool-service";
     const bkool = await server.getPrimaryService(BKOOL_SERVICE);
+    step = "bkool-write";
     writeChar = await bkool.getCharacteristic(BKOOL_WRITE);
+    step = "power-service";
     const powerService = await server.getPrimaryService(CYCLING_POWER);
+    step = "characteristics";
     const notifiers = [
-      await powerService.getCharacteristic(POWER_MEASUREMENT),
-      await bkool.getCharacteristic(BKOOL_NOTIFY_4),
-      await bkool.getCharacteristic(BKOOL_NOTIFY_6),
+      ["power-notify", await powerService.getCharacteristic(POWER_MEASUREMENT)],
+      ["bkool-notify-4", await bkool.getCharacteristic(BKOOL_NOTIFY_4)],
+      ["bkool-notify-6", await bkool.getCharacteristic(BKOOL_NOTIFY_6)],
     ];
-    for (const c of notifiers) {
+    for (const [name, c] of notifiers) {
+      step = name;
       c.removeEventListener("characteristicvaluechanged", onNotify);
       c.addEventListener("characteristicvaluechanged", onNotify);
       await c.startNotifications();
@@ -115,7 +124,7 @@ export async function connectBike({
   } catch (err) {
     closing = true;
     device.gatt.disconnect();
-    throw failure("not-found", err);
+    throw failure("not-found", err, step);
   }
 
   // Latest-wins sender: at most one write every MIN_WRITE_GAP_MS; a newer order replaces a

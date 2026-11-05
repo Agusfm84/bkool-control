@@ -36,6 +36,7 @@ function setControls(enabled) {
   for (const b of document.querySelectorAll("[data-slope],[data-erg]")) b.disabled = !enabled;
   $("#disconnect").disabled = !enabled;
   $("#connect").disabled = enabled;
+  $("#connect-any").disabled = enabled;
 }
 
 const MESSAGES = {
@@ -56,16 +57,45 @@ $("#support").textContent = navigator.bluetooth
   ? "Bluetooth disponible en este navegador ✔"
   : MESSAGES.unsupported;
 
-$("#connect").addEventListener("click", async () => {
+/** Whatever the browser threw, as text: some browsers reject with values that are not Errors. */
+function describe(cause) {
+  if (cause == null) return "(sin detalle)";
+  if (typeof cause !== "object") return `${typeof cause}: ${String(cause)}`;
+  const parts = [cause.name, cause.message, cause.code].filter((x) => x != null && x !== "");
+  if (parts.length) return parts.join(" | ");
+  try {
+    return `objeto: ${JSON.stringify(cause)} ${String(cause)}`;
+  } catch {
+    return `objeto: ${String(cause)}`;
+  }
+}
+
+// Diagnostic only: asks the browser to list every nearby device instead of filtering by name,
+// in case the name filter is what fails on this browser.
+const anyDevice = () => ({
+  requestDevice: (opts) =>
+    navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: opts.optionalServices,
+    }),
+});
+
+$("#connect").addEventListener("click", () => connect(false));
+$("#connect-any").addEventListener("click", () => connect(true));
+
+async function connect(any) {
   $("#connect").disabled = true;
+  $("#connect-any").disabled = true;
   $("#bike-status").textContent = "Conectando…";
   $("#bike-status").className = "";
+  log(any ? "buscando cualquier aparato…" : "buscando la bici por nombre…");
   try {
-    bike = await connectBike();
+    bike = await connectBike(any && navigator.bluetooth ? { bluetooth: anyDevice() } : {});
   } catch (err) {
     $("#connect").disabled = false;
+    $("#connect-any").disabled = false;
     $("#bike-status").textContent = MESSAGES[err?.kind] ?? MESSAGES["not-found"];
-    log(`✖ conexión: ${err?.kind} ${err?.cause?.name ?? ""} ${err?.cause?.message ?? ""}`);
+    log(`✖ conexión: ${err?.kind} · paso: ${err?.step ?? "?"} · ${describe(err?.cause)}`);
     return;
   }
   $("#bike-status").textContent = `Conectado a ${bike.name}.`;
@@ -73,6 +103,7 @@ $("#connect").addEventListener("click", async () => {
   setControls(false);
   $("#disconnect").disabled = false;
   $("#connect").disabled = true;
+  $("#connect-any").disabled = true;
   bike.onWrite((order, ok) => {
     const label = labels.get(hex(order)) ?? "orden";
     log(ok ? `→ enviado a la bici: ${label}` : `✖ NO se pudo enviar: ${label}`);
@@ -88,6 +119,7 @@ $("#connect").addEventListener("click", async () => {
     $("#bike-status").className = "bad";
     setControls(false);
     $("#connect").disabled = false;
+    $("#connect-any").disabled = false;
     log(`✖ enlace: ${e}`);
   });
   // Initial orders, spaced ourselves (the latest-wins sender would keep only the last one).
@@ -114,7 +146,7 @@ $("#connect").addEventListener("click", async () => {
     ),
   );
   requestWakeLock();
-});
+}
 
 $("#disconnect").addEventListener("click", () => {
   cancelInit();

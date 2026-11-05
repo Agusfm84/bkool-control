@@ -173,3 +173,34 @@ test("onWrite confirms each order actually written, and reports a dropped one", 
   assert.deepEqual(results.at(-1), [hex(trackResistance(4)), false]);
   assert.equal(results.filter(([, ok]) => !ok).length, 1); // reported once, after the last retry
 });
+
+test("cadence comes from the Bkool channel even when the power channel sends zero crank data", async () => {
+  // Real bike (spike 2026-11-05): crank revolutions and time in 0x2A63 are always 0.
+  const { conn, power, n6, clock } = await connected();
+  const seen = [];
+  conn.onData((d) => seen.push(d));
+  const zeroCrank = () => power.emit(0x30, 0x00, 0x96, 0x00, 4, 0, 0, 0, 0, 0x40, 0, 0, 0, 0);
+  n6.emit(0x96, 0x00, 0x42, 0x0d, 0x5d); // 3394 / 36 = 94 rpm
+  zeroCrank();
+  await clock.advance(4000);
+  n6.emit(0x96, 0x00, 0x42, 0x0d, 0x5d);
+  zeroCrank();
+  assert.deepEqual(seen.at(-1), { watts: 150, cadence: 94 });
+});
+
+test("a chooser failure with no error name says it happened while choosing", async () => {
+  const bike = fakeBkoolBike();
+  await assert.rejects(
+    connectBike({ bluetooth: fakeBluetooth(bike.device, { requestError: "weird" }) }),
+    { kind: "not-found", step: "choose" },
+  );
+});
+
+test("a set-up failure says which step failed", async () => {
+  const bike = fakeBkoolBike();
+  bike.device.missingService = "00001818-0000-1000-8000-00805f9b34fb";
+  await assert.rejects(connectBike({ bluetooth: fakeBluetooth(bike.device) }), {
+    kind: "not-found",
+    step: "power-service",
+  });
+});
