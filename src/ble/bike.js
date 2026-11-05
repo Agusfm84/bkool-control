@@ -61,7 +61,7 @@ export async function connectBike({
     throw failure("not-found", err);
   }
 
-  const listeners = { data: [], raw: [], link: [] };
+  const listeners = { data: [], raw: [], link: [], write: [] };
   const emit = (type, ...args) => {
     for (const fn of listeners[type]) fn(...args);
   };
@@ -137,12 +137,14 @@ export async function connectBike({
     try {
       await writeChar.writeValueWithoutResponse(order);
       retries = 0;
+      emit("write", order, true);
     } catch {
       if (mySeq === writeSeq && !pending && retries < MAX_WRITE_RETRIES) {
         retries++;
         pending = order;
       } else {
         retries = 0;
+        emit("write", order, false);
       }
     }
     if (pending) schedule();
@@ -164,6 +166,10 @@ export async function connectBike({
     },
     onLinkChange(fn) {
       listeners.link.push(fn);
+    },
+    /** fn(order, ok): ok=true once an order is written; false when it is dropped after retries. */
+    onWrite(fn) {
+      listeners.write.push(fn);
     },
     send(order) {
       pending = order;

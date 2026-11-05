@@ -159,3 +159,17 @@ test("a slow failed write is not retried after a newer order was already written
   await clock.advance(1000);
   assert.equal(hex(write.writes.at(-1)), hex(trackResistance(2)));
 });
+
+test("onWrite confirms each order actually written, and reports a dropped one", async () => {
+  const { conn, write, clock } = await connected();
+  const results = [];
+  conn.onWrite((order, ok) => results.push([hex(order), ok]));
+  conn.send(trackResistance(3));
+  await clock.advance(300);
+  assert.deepEqual(results, [[hex(trackResistance(3)), true]]);
+  write.failNextWrites = 99;
+  conn.send(trackResistance(4));
+  await clock.advance(5000);
+  assert.deepEqual(results.at(-1), [hex(trackResistance(4)), false]);
+  assert.equal(results.filter(([, ok]) => !ok).length, 1); // reported once, after the last retry
+});

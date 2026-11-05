@@ -38,9 +38,12 @@ const MESSAGES = {
   "not-found": "No se pudo conectar con la bici. Apágala y enciéndela, y vuelve a probar.",
 };
 
-async function send(order, label) {
+const labels = new Map(); // order hex → label, to name confirmations in the log
+
+function send(order, label) {
+  labels.set(hex(order), label);
   bike.send(order);
-  log(`→ ${label}: ${hex(order)}`);
+  log(`… en cola ${label}: ${hex(order)}`);
 }
 
 $("#support").textContent = navigator.bluetooth
@@ -48,17 +51,26 @@ $("#support").textContent = navigator.bluetooth
   : MESSAGES.unsupported;
 
 $("#connect").addEventListener("click", async () => {
+  $("#connect").disabled = true;
   $("#bike-status").textContent = "Conectando…";
+  $("#bike-status").className = "";
   try {
     bike = await connectBike();
   } catch (err) {
+    $("#connect").disabled = false;
     $("#bike-status").textContent = MESSAGES[err?.kind] ?? MESSAGES["not-found"];
     log(`✖ conexión: ${err?.kind} ${err?.cause?.name ?? ""} ${err?.cause?.message ?? ""}`);
     return;
   }
   $("#bike-status").textContent = `Conectado a ${bike.name}.`;
   $("#bike-status").className = "ok";
-  setControls(true);
+  setControls(false);
+  $("#disconnect").disabled = false;
+  $("#connect").disabled = true;
+  bike.onWrite((order, ok) => {
+    const label = labels.get(hex(order)) ?? "orden";
+    log(ok ? `→ enviado a la bici: ${label}` : `✖ NO se pudo enviar: ${label}`);
+  });
   bike.onData(({ watts, cadence }) => {
     $("#watts").textContent = watts;
     $("#cadence").textContent = cadence ?? "--";
@@ -70,11 +82,21 @@ $("#connect").addEventListener("click", async () => {
     setControls(false);
     log(`✖ enlace: ${e}`);
   });
-  // Initial orders, spaced by the adapter (latest-wins would drop all but the last, so space
-  // them ourselves).
+  // Initial orders, spaced ourselves (the latest-wins sender would keep only the last one).
+  // The test buttons stay disabled until the last one has gone out, so a tap cannot replace it.
+  $("#bike-status").textContent = `Conectado a ${bike.name}. Preparando la bici…`;
   for (const [i, order] of INIT_ORDERS.entries()) {
     setTimeout(() => send(order, `inicio ${i + 1}`), i * 400);
   }
+  setTimeout(
+    () => {
+      if (!bike) return;
+      setControls(true);
+      $("#bike-status").textContent =
+        `Conectado a ${bike.name}. Listo: deja 1 segundo entre toques.`;
+    },
+    INIT_ORDERS.length * 400 + 300,
+  );
   requestWakeLock();
 });
 
@@ -82,6 +104,7 @@ $("#disconnect").addEventListener("click", () => {
   bike?.send(trackResistance(0));
   setTimeout(() => {
     bike?.disconnect();
+    bike = null;
     $("#bike-status").textContent = "Desconectado.";
     $("#bike-status").className = "";
     setControls(false);
@@ -101,18 +124,36 @@ for (const b of document.querySelectorAll("[data-erg]")) {
   });
 }
 
+function hrStatus(text) {
+  $("#hr-status").textContent = text;
+}
+
 $("#hr").addEventListener("click", async () => {
-  if (!navigator.bluetooth) return;
+  if (!navigator.bluetooth) {
+    hrStatus(MESSAGES.unsupported);
+    return;
+  }
+  hrStatus("Buscando pulsómetro…");
   try {
     const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [0x180d] }] });
+    device.addEventListener("gattserverdisconnected", () => {
+      $("#bpm").textContent = "--";
+      hrStatus("Pulsómetro desconectado.");
+    });
     const server = await device.gatt.connect();
     const ch = await (await server.getPrimaryService(0x180d)).getCharacteristic(0x2a37);
     ch.addEventListener("characteristicvaluechanged", (e) => {
       $("#bpm").textContent = hr.parse(e.target.value);
     });
     await ch.startNotifications();
+    hrStatus(`Pulsómetro conectado: ${device.name ?? "sin nombre"}.`);
     log(`✔ pulsómetro conectado: ${device.name ?? "sin nombre"}`);
   } catch (err) {
+    hrStatus(
+      err?.name === "NotFoundError"
+        ? "No se eligió ningún pulsómetro. Póntelo (humedecido) y vuelve a probar."
+        : "No se pudo conectar el pulsómetro. Vuelve a probar.",
+    );
     log(`✖ pulsómetro: ${err?.name ?? ""} ${err?.message ?? ""}`);
   }
 });
@@ -131,8 +172,10 @@ $("#download").addEventListener("click", () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "prueba-bkool.txt";
+  document.body.append(a); // some iPhone browsers ignore clicks on detached links
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   log("✔ descarga lanzada: busca prueba-bkool.txt en Descargas/Archivos");
 });
 
