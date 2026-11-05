@@ -15,8 +15,15 @@ function defaultStorage() {
   }
 }
 
+const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 const isWorkout = (w) =>
-  w != null && typeof w === "object" && RECOVERABLE.has(w.status) && Array.isArray(w.samples);
+  w != null &&
+  typeof w === "object" &&
+  RECOVERABLE.has(w.status) &&
+  Array.isArray(w.samples) &&
+  isNum(w.startedAt) &&
+  isNum(w.pausedTotalMs) &&
+  isNum(w.lastSecond);
 
 /** @param {{getItem, setItem, removeItem}} [storage] localStorage-shaped. */
 export function createRecovery(storage = defaultStorage()) {

@@ -127,3 +127,12 @@ test("stored data carries a version field", () => {
   const [raw] = [...storage.data.values()];
   assert.equal(typeof JSON.parse(raw).v, "number");
 });
+
+test("a stored workout missing its time fields is not offered (it would record NaN)", () => {
+  const storage = fakeStorage();
+  storage.setItem(
+    "bkool-control:recovery",
+    JSON.stringify({ v: 1, workout: { status: "running", samples: [] } }),
+  );
+  assert.equal(createRecovery(storage).load(), null);
+});
