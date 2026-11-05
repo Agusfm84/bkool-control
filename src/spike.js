@@ -269,11 +269,14 @@ const TEST_TCX = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 $("#share").addEventListener("click", async () => {
-  const file = new File([TEST_TCX], TEST_TCX_NAME, { type: "application/xml" });
   if (!navigator.share) return log("✖ compartir: este navegador no tiene la opción de compartir");
-  if (navigator.canShare && !navigator.canShare({ files: [file] })) {
-    return log("✖ compartir: este navegador no permite compartir archivos");
-  }
+  // Try the XML type first; if refused, plain text (some iPhones only accept common types).
+  const candidates = ["application/xml", "text/plain"].map(
+    (type) => new File([TEST_TCX], TEST_TCX_NAME, { type }),
+  );
+  const file = candidates.find((f) => !navigator.canShare || navigator.canShare({ files: [f] }));
+  if (!file) return log("✖ compartir: no acepta archivos ni como XML ni como texto");
+  log(`compartir: tipo aceptado ${file.type}`);
   try {
     await navigator.share({ files: [file], title: TEST_TCX_NAME });
     log("✔ compartir: menú abierto y terminado. ¿Pudiste guardarlo en Archivos?");
