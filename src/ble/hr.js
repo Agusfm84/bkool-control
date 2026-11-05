@@ -55,8 +55,15 @@ export async function connectStrap({
   }
 
   const listeners = { hr: [], link: [] };
+  // A failing listener (e.g. a screen bug) must never stop the reconnection logic.
   const emit = (type, ...args) => {
-    for (const fn of listeners[type]) fn(...args);
+    for (const fn of listeners[type]) {
+      try {
+        fn(...args);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   let closing = false;
@@ -65,7 +72,7 @@ export async function connectStrap({
 
   function onNotify(event) {
     const bpm = hr.parse(event.target.value);
-    emit("hr", bpm);
+    emit("hr", bpm > 0 ? bpm : null); // 0 = no skin contact: no reading
   }
 
   let step = "connect";
@@ -113,6 +120,8 @@ export async function connectStrap({
     await setUp();
   } catch (err) {
     closing = true;
+    if (retryTimer !== null) clock.clearTimeout(retryTimer);
+    retryTimer = null;
     device.gatt.disconnect();
     throw failure("not-found", err, step);
   }

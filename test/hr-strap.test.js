@@ -98,15 +98,12 @@ test("retry waits grow 1, 2, 4, 8, 10, 10 s", async () => {
   device.gatt.failNextConnects = 99;
   const before = device.connectCalls;
   device.simulateLinkLoss();
-  let t = 0;
   for (const [i, wait] of [1000, 2000, 4000, 8000, 10000, 10000].entries()) {
     await clock.advance(wait - 1);
     assert.equal(device.connectCalls, before + i, `before attempt ${i + 1}`);
     await clock.advance(1);
     assert.equal(device.connectCalls, before + i + 1, `attempt ${i + 1}`);
-    t += wait;
   }
-  assert.ok(t > 0);
 });
 
 test("a deliberate disconnect is not reported as lost and stops the retries", async () => {
@@ -117,6 +114,7 @@ test("a deliberate disconnect is not reported as lost and stops the retries", as
   device.simulateLinkLoss();
   const calls = device.connectCalls;
   conn.disconnect();
+  assert.equal(clock.pendingTimers(), 0, "the retry timer is cancelled, not just ignored");
   await clock.advance(60000);
   assert.equal(device.connectCalls, calls);
   assert.deepEqual(events, ["lost"]);
@@ -129,4 +127,25 @@ test("disconnect on a healthy link emits nothing", async () => {
   conn.disconnect();
   await clock.advance(60000);
   assert.deepEqual(events, []);
+});
+
+test("a screen listener that throws on 'lost' does not stop the reconnection", async () => {
+  const { device, clock, conn } = await connected();
+  const events = [];
+  conn.onLinkChange(() => {
+    throw new Error("screen bug");
+  });
+  conn.onLinkChange((e) => events.push(e));
+  device.simulateLinkLoss();
+  await clock.advance(1000);
+  assert.deepEqual(events, ["lost", "back"]);
+});
+
+test("bpm 0 (strap without skin contact) is reported as no reading", async () => {
+  const { hr, conn } = await connected();
+  const seen = [];
+  conn.onHr((b) => seen.push(b));
+  hr.emit(0x00, 0);
+  hr.emit(0x00, 75);
+  assert.deepEqual(seen, [null, 75]);
 });

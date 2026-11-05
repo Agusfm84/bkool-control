@@ -159,6 +159,8 @@ export function fakeClock() {
     clearTimeout(id) {
       timers = timers.filter((t) => t.id !== id);
     },
+    /** Test helper: timers scheduled and not yet fired or cancelled. */
+    pendingTimers: () => timers.length,
     async advance(ms) {
       const end = now + ms;
       for (;;) {
