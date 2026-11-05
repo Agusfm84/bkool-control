@@ -162,6 +162,7 @@ export async function connectBike({
         await reconnecting;
       } catch {
         if (!closing) scheduleReconnect(attempt + 1);
+        else if (closed) device.gatt.disconnect(); // late failure after disconnect() finished
         return;
       } finally {
         reconnecting = null;
