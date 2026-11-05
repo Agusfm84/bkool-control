@@ -7,8 +7,6 @@ export const BKOOL_SERVICE = "f03eee01-4910-473c-be46-960948c2f59c";
 const BKOOL_WRITE = "f03ee002-4910-473c-be46-960948c2f59c";
 const BKOOL_NOTIFY_4 = "f03ee004-4910-473c-be46-960948c2f59c";
 const BKOOL_NOTIFY_6 = "f03ee006-4910-473c-be46-960948c2f59c";
-const CYCLING_POWER = 0x1818;
-const POWER_MEASUREMENT = 0x2a63;
 
 /** Minimum time between two writes to the bike. */
 export const MIN_WRITE_GAP_MS = 250;
@@ -23,7 +21,13 @@ export function canonicalUuid(uuid) {
   return String(uuid).toLowerCase();
 }
 
-const POWER_UUID = canonicalUuid(POWER_MEASUREMENT);
+// Always full 128-bit strings when talking to the browser: Bluefy (iPhone) rejects short numbers.
+const CYCLING_POWER = canonicalUuid(0x1818);
+const POWER_MEASUREMENT = canonicalUuid(0x2a63);
+const POWER_UUID = POWER_MEASUREMENT;
+
+/** Pause before retrying a chooser rejected with a bare status number (Bluefy while starting). */
+export const CHOOSER_RETRY_MS = 1200;
 
 const defaultClock = {
   now: () => Date.now(),
@@ -47,13 +51,22 @@ export async function connectBike({
 } = {}) {
   if (!bluetooth) throw failure("unsupported");
 
-  let device;
-  try {
-    device = await bluetooth.requestDevice({
+  const request = () =>
+    bluetooth.requestDevice({
       // namePrefix is case-sensitive in Web Bluetooth, so list the spellings in use.
       filters: [{ namePrefix: "BKOOL" }, { namePrefix: "Bkool" }, { namePrefix: "bkool" }],
       optionalServices: [BKOOL_SERVICE, CYCLING_POWER],
     });
+  let device;
+  try {
+    try {
+      device = await request();
+    } catch (first) {
+      // Bluefy can reject with a bare iOS Bluetooth state number while its radio starts; once.
+      if (typeof first !== "number") throw first;
+      await new Promise((resolve) => clock.setTimeout(resolve, CHOOSER_RETRY_MS));
+      device = await request();
+    }
   } catch (err) {
     if (err?.name === "NotFoundError") throw failure("cancelled", err);
     if (err?.name === "SecurityError" || err?.name === "NotSupportedError") {

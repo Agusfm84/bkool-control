@@ -40,7 +40,7 @@ test("device request filters on Bkool name prefixes and asks for both services",
   const prefixes = opts.filters.map((f) => f.namePrefix);
   for (const p of ["BKOOL", "Bkool", "bkool"]) assert.ok(prefixes.includes(p), `missing ${p}`);
   assert.ok(opts.optionalServices.includes(BKOOL_SERVICE));
-  assert.ok(opts.optionalServices.includes(0x1818));
+  assert.ok(opts.optionalServices.includes("00001818-0000-1000-8000-00805f9b34fb"));
 });
 
 test("subscribes to the power measurement and both Bkool notify channels", async () => {
@@ -203,4 +203,31 @@ test("a set-up failure says which step failed", async () => {
     kind: "not-found",
     step: "power-service",
   });
+});
+
+test("every uuid asked to the browser is a full 128-bit string (Bluefy rejects short numbers)", async () => {
+  const { bluetooth, device } = await connected();
+  for (const u of bluetooth.requests[0].optionalServices) assert.equal(typeof u, "string");
+  for (const u of device.gatt.asked) assert.equal(typeof u, "string", `asked ${u}`);
+});
+
+test("a bare status number from the chooser is retried once after a pause", async () => {
+  const bike = fakeBkoolBike();
+  const bluetooth = fakeBluetooth(bike.device, { requestError: 2, failTimes: 1 });
+  const clock = fakeClock();
+  const pending = connectBike({ bluetooth, clock });
+  await settle();
+  assert.equal(bluetooth.requests.length, 1);
+  await clock.advance(1200);
+  const conn = await pending;
+  assert.equal(bluetooth.requests.length, 2);
+  assert.equal(conn.name, bike.device.name);
+});
+
+test("a cancelled chooser is not retried", async () => {
+  const bike = fakeBkoolBike();
+  const err = Object.assign(new Error("User cancelled"), { name: "NotFoundError" });
+  const bluetooth = fakeBluetooth(bike.device, { requestError: err });
+  await assert.rejects(connectBike({ bluetooth, clock: fakeClock() }), { kind: "cancelled" });
+  assert.equal(bluetooth.requests.length, 1);
 });

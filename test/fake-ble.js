@@ -56,6 +56,7 @@ class FakeService {
     this.chars = new Map(chars.map((c) => [c.uuid, c]));
   }
   async getCharacteristic(uuid) {
+    this.asked?.push(uuid);
     const c = this.chars.get(canonicalUuid(uuid));
     if (!c) throw Object.assign(new Error(`no characteristic ${uuid}`), { name: "NotFoundError" });
     return c;
@@ -72,6 +73,7 @@ export class FakeDevice extends FakeTarget {
     const device = this;
     this.gatt = {
       connected: false,
+      asked: [], // every uuid passed to getPrimaryService/getCharacteristic, as given
       failNextConnects: 0,
       async connect() {
         device.connectCalls++;
@@ -87,12 +89,14 @@ export class FakeDevice extends FakeTarget {
         device.dispatch("gattserverdisconnected");
       },
       async getPrimaryService(uuid) {
+        this.asked.push(uuid);
         const key = canonicalUuid(uuid);
         const s = key === device.missingService ? undefined : device.services.get(key);
         if (!s) throw Object.assign(new Error(`no service ${uuid}`), { name: "NotFoundError" });
         return s;
       },
     };
+    for (const svc of this.services.values()) svc.asked = this.gatt.asked;
   }
   /** Test helper: the Bluetooth link is lost without the app asking. */
   simulateLinkLoss() {
@@ -101,12 +105,12 @@ export class FakeDevice extends FakeTarget {
   }
 }
 
-export function fakeBluetooth(device, { requestError = null } = {}) {
+export function fakeBluetooth(device, { requestError = null, failTimes = Infinity } = {}) {
   return {
     requests: [],
     async requestDevice(options) {
       this.requests.push(options);
-      if (requestError) throw requestError;
+      if (requestError != null && this.requests.length <= failTimes) throw requestError;
       return device;
     },
   };

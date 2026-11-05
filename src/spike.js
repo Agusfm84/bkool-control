@@ -1,10 +1,12 @@
 // Spike page (plan step 5): proves on the real bike that slope and ERG orders work, and checks
 // what Bluefy allows. Throwaway screen; the logic it uses is the real one from core/ and ble/.
-import { connectBike } from "./ble/bike.js";
+import { canonicalUuid, connectBike } from "./ble/bike.js";
 import { targetPower, trackResistance } from "./core/fec.js";
 import * as hr from "./core/hr.js";
 
 const $ = (sel) => document.querySelector(sel);
+const HR_SERVICE = canonicalUuid(0x180d);
+const HR_MEASUREMENT = canonicalUuid(0x2a37);
 const hex = (bytes) =>
   [...new Uint8Array(bytes.buffer ?? bytes, bytes.byteOffset ?? 0, bytes.byteLength)]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -90,6 +92,18 @@ const anyDevice = () => ({
 
 $("#connect").addEventListener("click", () => connect(false));
 $("#connect-any").addEventListener("click", () => connect(true));
+
+// Diagnostic only: can this browser open the device list at all, asking for nothing else?
+$("#list-only").addEventListener("click", async () => {
+  if (!navigator.bluetooth) return log(MESSAGES.unsupported);
+  log("solo lista: pidiendo la lista de aparatos…");
+  try {
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+    log(`✔ solo lista: elegido "${device.name ?? "sin nombre"}"`);
+  } catch (err) {
+    log(`✖ solo lista: ${describe(err)}`);
+  }
+});
 
 async function connect(any) {
   $("#connect").disabled = true;
@@ -192,13 +206,15 @@ $("#hr").addEventListener("click", async () => {
   }
   hrStatus("Buscando pulsómetro…");
   try {
-    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [0x180d] }] });
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [HR_SERVICE] }],
+    });
     device.addEventListener("gattserverdisconnected", () => {
       $("#bpm").textContent = "--";
       hrStatus("Pulsómetro desconectado.");
     });
     const server = await device.gatt.connect();
-    const ch = await (await server.getPrimaryService(0x180d)).getCharacteristic(0x2a37);
+    const ch = await (await server.getPrimaryService(HR_SERVICE)).getCharacteristic(HR_MEASUREMENT);
     ch.addEventListener("characteristicvaluechanged", (e) => {
       $("#bpm").textContent = hr.parse(e.target.value);
     });
