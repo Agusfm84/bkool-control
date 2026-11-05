@@ -258,3 +258,42 @@ $("#download").addEventListener("click", () => {
 $("#clear").addEventListener("click", () => {
   $("#log").textContent = "";
 });
+
+// R3 on iPhone: Bluefy shows "downloaded" but saves nothing. Two other ways out, tested here.
+// The test file looks like the real one the app will produce (a small TCX).
+const TEST_TCX_NAME = "prueba-bkool.tcx";
+const TEST_TCX = `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities><Activity Sport="Biking"><Id>2026-11-05T20:00:00Z</Id></Activity></Activities>
+</TrainingCenterDatabase>
+`;
+
+$("#share").addEventListener("click", async () => {
+  const file = new File([TEST_TCX], TEST_TCX_NAME, { type: "application/xml" });
+  if (!navigator.share) return log("✖ compartir: este navegador no tiene la opción de compartir");
+  if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+    return log("✖ compartir: este navegador no permite compartir archivos");
+  }
+  try {
+    await navigator.share({ files: [file], title: TEST_TCX_NAME });
+    log("✔ compartir: menú abierto y terminado. ¿Pudiste guardarlo en Archivos?");
+  } catch (err) {
+    log(
+      err?.name === "AbortError"
+        ? "compartir: cerraste el menú sin elegir nada"
+        : `✖ compartir: ${describe(err)}`,
+    );
+  }
+});
+
+$("#open-tab").addEventListener("click", () => {
+  const url = URL.createObjectURL(new Blob([TEST_TCX], { type: "text/plain" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank"; // no download attribute: the browser shows the file instead
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  log("abrir: si se abrió una pestaña con el texto, usa compartir → Guardar en Archivos");
+});
