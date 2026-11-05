@@ -13,12 +13,16 @@ export const MIN_WRITE_GAP_MS = 250;
 /** Times a failed write is retried before the order is dropped. */
 const MAX_WRITE_RETRIES = 3;
 
-/** Browsers report every UUID as a lowercase 128-bit string: 0x2a63 → "00002a63-0000-…". */
+/**
+ * One spelling for every UUID: lowercase 128-bit. Chrome reports "00002a63-0000-…", but Bluefy
+ * (iPhone) reports short strings like "2a63"; numbers (0x2a63) and short hex are expanded.
+ */
 export function canonicalUuid(uuid) {
-  if (typeof uuid === "number") {
-    return `${uuid.toString(16).padStart(8, "0")}-0000-1000-8000-00805f9b34fb`;
+  const short = typeof uuid === "number" ? uuid.toString(16) : String(uuid).toLowerCase();
+  if (/^[0-9a-f]{4}$|^[0-9a-f]{8}$/.test(short)) {
+    return `${short.padStart(8, "0")}-0000-1000-8000-00805f9b34fb`;
   }
-  return String(uuid).toLowerCase();
+  return short;
 }
 
 // Always full 128-bit strings when talking to the browser: Bluefy (iPhone) rejects short numbers.

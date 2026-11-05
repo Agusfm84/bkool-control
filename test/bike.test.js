@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { connectBike } from "../src/ble/bike.js";
+import { canonicalUuid as bikeUuid, connectBike } from "../src/ble/bike.js";
 import { trackResistance } from "../src/core/fec.js";
 import {
   BKOOL_SERVICE,
@@ -242,4 +242,23 @@ test("the chooser is retried only once: a second bare number fails while choosin
   await clock.advance(5000);
   await outcome;
   assert.equal(bluetooth.requests.length, 2);
+});
+
+test("short uuid strings, as Bluefy reports them, are expanded to the full form", () => {
+  const canonicalUuid = bikeUuid;
+  assert.equal(canonicalUuid("2a63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(canonicalUuid("2A63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(canonicalUuid("00002a63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(canonicalUuid("F03EE006-4910-473C-BE46-960948C2F59C"), "f03ee006-4910-473c-be46-960948c2f59c");
+});
+
+test("watts and cadence arrive when the browser names the power channel '2a63' (Bluefy)", async () => {
+  // Real iPhone log 2026-11-05: Bluefy reports the characteristic uuid as "2a63".
+  const { conn, power, n6 } = await connected();
+  power.uuid = "2a63";
+  const seen = [];
+  conn.onData((d) => seen.push(d));
+  n6.emit(0x96, 0x00, 0x42, 0x0d, 0x5d); // 94 rpm
+  power.emit(0x30, 0x00, 0x96, 0x00, 4, 0, 0, 0, 0, 0x40, 0, 0, 0, 0); // 150 W
+  assert.deepEqual(seen.at(-1), { watts: 150, cadence: 94 });
 });
