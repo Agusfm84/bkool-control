@@ -19,6 +19,12 @@ const INIT_ORDERS = [
 ].map((a) => Uint8Array.from(a));
 
 let bike = null;
+let initTimers = [];
+
+function cancelInit() {
+  for (const id of initTimers) clearTimeout(id);
+  initTimers = [];
+}
 
 function log(line) {
   const el = $("#log");
@@ -77,30 +83,41 @@ $("#connect").addEventListener("click", async () => {
   });
   bike.onRaw((uuid, view) => log(`← ${uuid.slice(0, 8)}: ${hex(view)}`));
   bike.onLinkChange((e) => {
+    cancelInit();
     $("#bike-status").textContent = "Conexión perdida.";
     $("#bike-status").className = "bad";
     setControls(false);
+    $("#connect").disabled = false;
     log(`✖ enlace: ${e}`);
   });
   // Initial orders, spaced ourselves (the latest-wins sender would keep only the last one).
   // The test buttons stay disabled until the last one has gone out, so a tap cannot replace it.
+  // Timers belong to this connection only: they are cancelled on disconnect or link loss.
+  const thisBike = bike;
   $("#bike-status").textContent = `Conectado a ${bike.name}. Preparando la bici…`;
   for (const [i, order] of INIT_ORDERS.entries()) {
-    setTimeout(() => send(order, `inicio ${i + 1}`), i * 400);
+    initTimers.push(
+      setTimeout(() => {
+        if (bike === thisBike) send(order, `inicio ${i + 1}`);
+      }, i * 400),
+    );
   }
-  setTimeout(
-    () => {
-      if (!bike) return;
-      setControls(true);
-      $("#bike-status").textContent =
-        `Conectado a ${bike.name}. Listo: deja 1 segundo entre toques.`;
-    },
-    INIT_ORDERS.length * 400 + 300,
+  initTimers.push(
+    setTimeout(
+      () => {
+        if (bike !== thisBike) return;
+        setControls(true);
+        $("#bike-status").textContent =
+          `Conectado a ${bike.name}. Listo: deja 1 segundo entre toques.`;
+      },
+      INIT_ORDERS.length * 400 + 300,
+    ),
   );
   requestWakeLock();
 });
 
 $("#disconnect").addEventListener("click", () => {
+  cancelInit();
   bike?.send(trackResistance(0));
   setTimeout(() => {
     bike?.disconnect();
