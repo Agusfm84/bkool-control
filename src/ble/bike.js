@@ -125,6 +125,7 @@ export async function connectBike({
   let retries = 0;
   let timer = null;
   let lastWriteAt = Number.NEGATIVE_INFINITY;
+  let writeSeq = 0; // increases on every write attempt; a late failure of an older write is ignored
 
   async function flush() {
     timer = null;
@@ -132,11 +133,12 @@ export async function connectBike({
     const order = pending;
     pending = null;
     lastWriteAt = clock.now();
+    const mySeq = ++writeSeq;
     try {
       await writeChar.writeValueWithoutResponse(order);
       retries = 0;
     } catch {
-      if (!pending && retries < MAX_WRITE_RETRIES) {
+      if (mySeq === writeSeq && !pending && retries < MAX_WRITE_RETRIES) {
         retries++;
         pending = order;
       } else {

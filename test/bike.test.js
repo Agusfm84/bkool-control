@@ -138,3 +138,24 @@ test("if a service is missing after connecting, the link is closed again", async
   });
   assert.equal(bike.device.gatt.connected, false);
 });
+
+test("a slow failed write is not retried after a newer order was already written", async () => {
+  const { conn, write, clock } = await connected();
+  let rejectFirst;
+  const realWrite = write.writeValueWithoutResponse.bind(write);
+  let calls = 0;
+  write.writeValueWithoutResponse = (bytes) => {
+    calls++;
+    if (calls === 1) return new Promise((_, reject) => (rejectFirst = reject)); // hangs, then fails
+    return realWrite(bytes);
+  };
+  conn.send(trackResistance(1)); // A
+  clock.advance(0); // A in flight (do not await: it never resolves by itself)
+  await settle();
+  conn.send(trackResistance(2)); // B
+  await clock.advance(300); // B written
+  rejectFirst(Object.assign(new Error("late failure"), { name: "NetworkError" }));
+  await settle();
+  await clock.advance(1000);
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(2)));
+});

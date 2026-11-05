@@ -121,3 +121,9 @@ test("finishing with no samples gives zeros, not errors", () => {
     maxHr: null,
   });
 });
+
+test("summary of a workout that was never finished does not give a negative time", () => {
+  let w = start(create(), 1_000_000);
+  w = tick(w, 1_000_000, reading(100, 80));
+  assert.ok(summary(w).durationS >= 0);
+});

@@ -68,7 +68,11 @@ export function summary(w) {
   const cadences = data.map((s) => s.cadence).filter((c) => c != null);
   const hrs = data.map((s) => s.hr).filter((h) => h != null);
   return {
-    durationS: Math.round(elapsedMs(w, w.finishedAt ?? 0) / 1000),
+    // Unfinished (e.g. recovered after a reload): the recorded seconds are the best measure.
+    durationS:
+      w.finishedAt != null
+        ? Math.round(elapsedMs(w, w.finishedAt) / 1000)
+        : Math.max(0, (w.lastSecond ?? -1) + 1),
     avgW: mean(watts) ?? 0,
     maxW: watts.length ? Math.max(...watts) : 0,
     avgCad: mean(cadences) ?? 0,
