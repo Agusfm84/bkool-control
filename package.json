@@ -1,0 +1,15 @@
+{
+  "name": "bkool-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Control de la Bkool Smart Bike desde el móvil (app web con Bluetooth).",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node --test",
+    "check": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5"
+  }
+}
