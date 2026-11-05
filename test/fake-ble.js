@@ -134,6 +134,16 @@ export function fakeBkoolBike() {
   return { device, write, n4, n6, power };
 }
 
+export const HR_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb";
+export const HR_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb";
+
+/** A fake heart-rate strap: Heart Rate service 0x180D with the 0x2A37 measurement characteristic. */
+export function fakeHrStrap(name = "FakeStrap 1234") {
+  const hr = new FakeCharacteristic(0x2a37);
+  const device = new FakeDevice(name, [new FakeService(0x180d, [hr])]);
+  return { device, hr };
+}
+
 /** Manual clock: timers only fire when the test advances time. */
 export function fakeClock() {
   let now = 0;
