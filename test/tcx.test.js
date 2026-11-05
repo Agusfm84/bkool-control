@@ -96,3 +96,10 @@ test("empty and all-gap input yields a valid file with no NaN or undefined", () 
     assert.equal(/NaN|undefined|null/.test(xml), false);
   }
 });
+
+test("heart rate 0 (no skin contact) is not written and does not lower the lap average", () => {
+  const xml = build([data(0, 150, 85, 140), data(1, 150, 85, 0), data(2, 150, 85, 142)], START);
+  assert.equal(count(xml, "HeartRateBpm"), 2);
+  assert.ok(!xml.includes("<Value>0</Value>"));
+  assert.ok(xml.includes("<AverageHeartRateBpm><Value>141</Value>"));
+});

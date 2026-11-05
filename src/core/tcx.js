@@ -5,6 +5,8 @@ const NS_TCX = "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2";
 const NS_EXT = "http://www.garmin.com/xmlschemas/ActivityExtension/v2";
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+// TCX allows heart rates 1-255; 0 means the strap had no skin contact, so it is not a reading.
+const isHr = (x) => isNum(x) && x >= 1 && x <= 255;
 const int = (v) => Math.round(isNum(v) ? v : 0);
 const mean = (values) =>
   values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
@@ -31,7 +33,7 @@ export function build(samples, startIso) {
   });
 
   const totalS = all.length ? Math.max(...all.map((s) => int(s.t))) + 1 : 0;
-  const hrs = data.map((s) => s.hr).filter(isNum);
+  const hrs = data.map((s) => s.hr).filter(isHr);
   const hrLap = hrs.length
     ? `
         <AverageHeartRateBpm><Value>${mean(hrs)}</Value></AverageHeartRateBpm>
@@ -61,7 +63,7 @@ ${points.join("\n")}
 
 function trackpoint(s, startMs, meters) {
   const time = new Date(startMs + int(s.t) * 1000).toISOString();
-  const hr = isNum(s.hr) ? `<HeartRateBpm><Value>${Math.round(s.hr)}</Value></HeartRateBpm>` : "";
+  const hr = isHr(s.hr) ? `<HeartRateBpm><Value>${Math.round(s.hr)}</Value></HeartRateBpm>` : "";
   const cad = isNum(s.cadence) ? `<Cadence>${Math.round(s.cadence)}</Cadence>` : "";
   return `          <Trackpoint>
             <Time>${time}</Time>
