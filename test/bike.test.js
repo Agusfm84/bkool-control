@@ -265,3 +265,83 @@ test("watts and cadence arrive when the browser names the power channel '2a63' (
   power.emit(0x30, 0x00, 0x96, 0x00, 4, 0, 0, 0, 0, 0x40, 0, 0, 0, 0); // 150 W
   assert.deepEqual(seen.at(-1), { watts: 150, cadence: 94 });
 });
+
+// --- T014: reconnect, re-send, safe disconnect -------------------------------------------
+
+test("link loss: 'lost', retries after 1, 2, 4 s, then 'back' and the last order is re-sent", async () => {
+  const { conn, device, write, clock } = await connected();
+  const events = [];
+  conn.onLinkChange((e) => events.push(e));
+  conn.send(trackResistance(6));
+  await clock.advance(300);
+  const writesBefore = write.writes.length;
+  device.gatt.failNextConnects = 2;
+  const calls = device.connectCalls;
+  device.simulateLinkLoss();
+  assert.deepEqual(events, ["lost"]);
+  await clock.advance(999);
+  assert.equal(device.connectCalls, calls);
+  await clock.advance(1); // 1 s: fails
+  await clock.advance(2000); // +2 s: fails
+  assert.equal(device.connectCalls, calls + 2);
+  await clock.advance(3999);
+  assert.deepEqual(events, ["lost"]);
+  await clock.advance(1); // +4 s: succeeds
+  assert.deepEqual(events, ["lost", "back"]);
+  await clock.advance(300);
+  assert.equal(write.writes.length, writesBefore + 1);
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(6)));
+});
+
+test("an order given while the link is down is the one sent when it comes back", async () => {
+  const { conn, device, write, clock } = await connected();
+  conn.send(trackResistance(3));
+  await clock.advance(300);
+  device.simulateLinkLoss();
+  conn.send(trackResistance(9)); // rider taps + while the bike is away
+  await clock.advance(500);
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(3)), "nothing written while down");
+  await clock.advance(1000); // reconnects
+  await clock.advance(300);
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(9)));
+});
+
+test("disconnect writes level 1 (slope 0 %) before closing the link", async () => {
+  const { conn, device, write, clock } = await connected();
+  conn.send(trackResistance(10));
+  await clock.advance(300);
+  let writesWhenClosed = null;
+  device.addEventListener("gattserverdisconnected", () => {
+    writesWhenClosed = write.writes.map(hex);
+  });
+  await conn.disconnect();
+  assert.equal(writesWhenClosed?.at(-1), hex(trackResistance(0)));
+  assert.equal(device.gatt.connected, false);
+});
+
+test("disconnect while reconnecting stops the retries and leaves no timer", async () => {
+  const { conn, device, clock } = await connected();
+  const events = [];
+  conn.onLinkChange((e) => events.push(e));
+  device.gatt.failNextConnects = 99;
+  device.simulateLinkLoss();
+  await clock.advance(1000);
+  const calls = device.connectCalls;
+  await conn.disconnect();
+  assert.equal(clock.pendingTimers(), 0);
+  await clock.advance(60000);
+  assert.equal(device.connectCalls, calls);
+  assert.deepEqual(events, ["lost"]);
+});
+
+test("a screen listener that throws does not stop the bike from reconnecting", async () => {
+  const { conn, device, clock } = await connected();
+  const events = [];
+  conn.onLinkChange(() => {
+    throw new Error("screen bug");
+  });
+  conn.onLinkChange((e) => events.push(e));
+  device.simulateLinkLoss();
+  await clock.advance(1000);
+  assert.deepEqual(events, ["lost", "back"]);
+});

@@ -1,14 +1,14 @@
 // Bluetooth plumbing for a standard heart-rate strap (Web Bluetooth): connects, subscribes to
 // Heart Rate Measurement and turns notifications into bpm. On a lost link it keeps retrying.
 import * as hr from "../core/hr.js";
-import { CHOOSER_RETRY_MS, canonicalUuid } from "./bike.js";
+import { CHOOSER_RETRY_MS, canonicalUuid, RECONNECT_WAITS_MS } from "./bike.js";
 
 // Always full 128-bit strings when talking to the browser: Bluefy (iPhone) rejects short numbers.
 const HEART_RATE = canonicalUuid(0x180d);
 const HR_MEASUREMENT = canonicalUuid(0x2a37);
 
-/** Waits between reconnect attempts: 1 s, 2 s, 4 s, 8 s, then 10 s for ever. */
-const RETRY_WAITS_MS = [1000, 2000, 4000, 8000, 10000];
+/** Waits between reconnect attempts: the same schedule as the bike. */
+const RETRY_WAITS_MS = RECONNECT_WAITS_MS;
 
 const defaultClock = {
   now: () => Date.now(),

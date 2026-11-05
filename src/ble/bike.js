@@ -2,6 +2,7 @@
 // subscribes, turns notifications into readings and writes orders, spaced and latest-wins.
 import { parseCadence } from "../core/bkool.js";
 import * as cps from "../core/cps.js";
+import { trackResistance } from "../core/fec.js";
 
 export const BKOOL_SERVICE = "f03eee01-4910-473c-be46-960948c2f59c";
 const BKOOL_WRITE = "f03ee002-4910-473c-be46-960948c2f59c";
@@ -10,6 +11,8 @@ const BKOOL_NOTIFY_6 = "f03ee006-4910-473c-be46-960948c2f59c";
 
 /** Minimum time between two writes to the bike. */
 export const MIN_WRITE_GAP_MS = 250;
+/** Waits between reconnect attempts after a lost link: 1 s, 2 s, 4 s, 8 s, then 10 s for ever. */
+export const RECONNECT_WAITS_MS = [1000, 2000, 4000, 8000, 10000];
 /** Times a failed write is retried before the order is dropped. */
 const MAX_WRITE_RETRIES = 3;
 
@@ -81,8 +84,15 @@ export async function connectBike({
   }
 
   const listeners = { data: [], raw: [], link: [], write: [] };
+  // A failing listener (e.g. a screen bug) must never stop the Bluetooth logic.
   const emit = (type, ...args) => {
-    for (const fn of listeners[type]) fn(...args);
+    for (const fn of listeners[type]) {
+      try {
+        fn(...args);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   let crank = null;
@@ -133,14 +143,49 @@ export async function connectBike({
     }
   }
 
+  // Reconnect: on a lost link, retry on RECONNECT_WAITS_MS; once back, re-send the last order
+  // so the bike returns to the rider's level or ERG target (spec: link lost / restored).
+  let linkDown = false;
+  let retryTimer = null;
+
+  function scheduleReconnect(attempt) {
+    const wait = RECONNECT_WAITS_MS[Math.min(attempt, RECONNECT_WAITS_MS.length - 1)];
+    retryTimer = clock.setTimeout(async () => {
+      retryTimer = null;
+      if (closing) return;
+      try {
+        await setUp();
+      } catch {
+        if (!closing) scheduleReconnect(attempt + 1);
+        return;
+      }
+      if (closing) {
+        device.gatt.disconnect();
+        return;
+      }
+      linkDown = false;
+      emit("link", "back");
+      if (lastOrder) {
+        pending = lastOrder;
+        retries = 0;
+        schedule();
+      }
+    }, wait);
+  }
+
   device.addEventListener("gattserverdisconnected", () => {
-    if (!closing) emit("link", "lost");
+    if (closing || linkDown) return;
+    linkDown = true;
+    scheduleReconnect(0);
+    emit("link", "lost");
   });
 
   try {
     await setUp();
   } catch (err) {
     closing = true;
+    if (retryTimer !== null) clock.clearTimeout(retryTimer);
+    retryTimer = null;
     device.gatt.disconnect();
     throw failure("not-found", err, step);
   }
@@ -149,6 +194,7 @@ export async function connectBike({
   // pending one, so fast taps never build up a queue of stale orders. A failed write is
   // retried a few times unless a newer order arrived meanwhile.
   let pending = null;
+  let lastOrder = null; // the rider's latest order, re-sent after a reconnect
   let retries = 0;
   let timer = null;
   let lastWriteAt = Number.NEGATIVE_INFINITY;
@@ -156,7 +202,7 @@ export async function connectBike({
 
   async function flush() {
     timer = null;
-    if (!pending || closing) return;
+    if (!pending || closing || linkDown) return; // while down, the order waits for 'back'
     const order = pending;
     pending = null;
     lastWriteAt = clock.now();
@@ -199,15 +245,28 @@ export async function connectBike({
       listeners.write.push(fn);
     },
     send(order) {
+      lastOrder = order;
       pending = order;
       retries = 0;
       schedule();
     },
-    disconnect() {
+    /** Leaves the bike at level 1 (slope 0 %), then closes the link. Never throws. */
+    async disconnect() {
+      if (closing) return;
       closing = true;
       if (timer !== null) clock.clearTimeout(timer);
+      if (retryTimer !== null) clock.clearTimeout(retryTimer);
       timer = null;
+      retryTimer = null;
       pending = null;
+      if (!linkDown) {
+        try {
+          await writeChar.writeValueWithoutResponse(trackResistance(0));
+          emit("write", trackResistance(0), true);
+        } catch {
+          // the link is going away anyway; nothing else to do
+        }
+      }
       device.gatt.disconnect();
     },
   };

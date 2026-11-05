@@ -139,8 +139,15 @@ async function connect(any) {
   });
   bike.onRaw((uuid, view) => log(`← ${uuid.slice(0, 8)}: ${hex(view)}`));
   bike.onLinkChange((e) => {
+    if (e === "back") {
+      $("#bike-status").textContent = `Conectado a ${bike?.name}. Conexión recuperada.`;
+      $("#bike-status").className = "ok";
+      setControls(true);
+      log("✔ enlace recuperado: se reenvía la última orden");
+      return;
+    }
     cancelInit();
-    $("#bike-status").textContent = "Conexión perdida.";
+    $("#bike-status").textContent = "Conexión perdida. Reintentando…";
     $("#bike-status").className = "bad";
     setControls(false);
     $("#connect").disabled = false;
