@@ -127,3 +127,13 @@ test("summary of a workout that was never finished does not give a negative time
   w = tick(w, 1_000_000, reading(100, 80));
   assert.ok(summary(w).durationS >= 0);
 });
+
+test("seconds skipped by a throttled clock are recorded as gaps, not lost", () => {
+  let w = start(create(), 0);
+  w = tick(w, 0, reading(100, 80));
+  w = tick(w, 5200, reading(120, 82)); // the phone slept: seconds 1-4 never ticked
+  assert.deepEqual(
+    w.samples.map((s) => (s.gap ? `${s.t}:gap` : `${s.t}:${s.watts}`)),
+    ["0:100", "1:gap", "2:gap", "3:gap", "4:gap", "5:120"],
+  );
+});

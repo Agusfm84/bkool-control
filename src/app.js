@@ -30,6 +30,7 @@ const MESSAGES = {
   saveFailed: "No se pudo guardar el archivo. Vuelve a probar.",
   saved: "Archivo listo. Súbelo en strava.com → Subir actividad.",
   oops: "Algo ha fallado. Vuelve a probar.",
+  backupStuck: "No se pudo borrar la copia guardada. Si vuelve a aparecer, descártala.",
 };
 
 const now = () => Date.now();
@@ -79,9 +80,12 @@ async function connectTheBike() {
   b.onData(({ watts, cadence }) => {
     s.latest = { watts, cadence, at: now() };
   });
+  let linkLost = false;
+  let ready = false;
   b.onLinkChange((e) => {
     if (bike !== b) return;
-    s.bike = e === "lost" ? "lost" : "on";
+    linkLost = e === "lost";
+    if (ready) s.bike = linkLost ? "lost" : "on"; // during init the bike stays "connecting"
     render();
   });
   // Init orders, spaced by hand (the latest-wins sender would keep only the last one), then the
@@ -92,7 +96,8 @@ async function connectTheBike() {
     if (bike !== b) return;
   }
   b.send(control.currentOrder(s.ctrl));
-  s.bike = "on";
+  ready = true;
+  s.bike = linkLost ? "lost" : "on"; // a drop during init is shown, not hidden
   keepScreenOn();
   render();
 }
@@ -141,8 +146,9 @@ function disconnectTheStrap() {
   render();
 }
 
+/** While the link is down the adapter keeps the newest order and sends it when the bike is back. */
 function sendSetting(order) {
-  if (order && bike && s.bike === "on") bike.send(order);
+  if (order && bike && s.bike !== "connecting") bike.send(order);
 }
 
 // ---- Workout -------------------------------------------------------------------------------
@@ -165,7 +171,22 @@ function finishWorkout() {
   sendSetting(control.safeOrder());
 }
 
+let saving = false;
 async function saveWorkout() {
+  if (saving) return; // a double tap must not open two share sheets
+  saving = true;
+  try {
+    await saveOnce();
+  } finally {
+    saving = false;
+  }
+}
+
+function clearBackup() {
+  if (!recovery.clear()) info(MESSAGES.backupStuck);
+}
+
+async function saveOnce() {
   const w = s.recovered ?? s.w;
   if (!(w.samples ?? []).some((x) => !x.gap)) return;
   const text = tcx.build(w.samples, new Date(w.startedAt).toISOString());
@@ -176,18 +197,18 @@ async function saveWorkout() {
     render();
     return;
   }
-  recovery.clear();
   s.recovered = null;
   s.w = workout.create();
   info(MESSAGES.saved);
+  clearBackup();
   render();
 }
 
 function discardWorkout() {
-  recovery.clear();
   s.recovered = null;
   s.w = workout.create();
   info(null);
+  clearBackup();
 }
 
 // ---- Screen actions ------------------------------------------------------------------------

@@ -55,8 +55,11 @@ export function tick(w, now, reading) {
   if (w.status !== "running") return w;
   const second = Math.floor(elapsedMs(w, now) / 1000);
   if (second <= w.lastSecond) return w;
+  // Seconds the clock skipped (a throttled or sleeping phone) are gaps: no data, not lost time.
+  const skipped = [];
+  for (let t = w.lastSecond + 1; t < second; t++) skipped.push({ t, gap: true });
   const sample = reading ? { t: second, ...reading } : { t: second, gap: true };
-  return { ...w, samples: [...w.samples, sample], lastSecond: second };
+  return { ...w, samples: [...w.samples, ...skipped, sample], lastSecond: second };
 }
 
 const mean = (values) =>

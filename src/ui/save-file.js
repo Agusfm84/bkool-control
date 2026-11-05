@@ -19,8 +19,9 @@ export async function saveFile(name, text) {
         await nav.share({ files: [file], title: name });
         return "shared";
       } catch (err) {
-        if (err?.name === "AbortError") return "cancelled";
-        // fall through to a download
+        // Never fall back to a download here: Bluefy ignores downloads, so a "downloaded" result
+        // would clear the backup of a workout that never left the phone.
+        return err?.name === "AbortError" ? "cancelled" : "failed";
       }
     }
   }
