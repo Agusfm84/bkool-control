@@ -273,7 +273,9 @@ export function createScreen(root, onAction) {
     ref.summarySave.disabled = !v.canSave;
     ref.recoveredSave.disabled = !v.canSave;
 
+    const opening = Boolean(v.confirm) && ref.confirm.hidden;
     ref.confirm.hidden = !v.confirm;
+    if (opening) ref.confirm.querySelector('[data-action="cancel"]').focus();
     if (v.confirm) {
       ref.confirmText.textContent = v.confirm.text;
       ref.confirmYes.textContent = v.confirm.yes;
