@@ -18,7 +18,8 @@ const MAX_WRITE_RETRIES = 3;
  * (iPhone) reports short strings like "2a63"; numbers (0x2a63) and short hex are expanded.
  */
 export function canonicalUuid(uuid) {
-  const short = typeof uuid === "number" ? uuid.toString(16) : String(uuid).toLowerCase();
+  const short =
+    typeof uuid === "number" ? uuid.toString(16).padStart(8, "0") : String(uuid).toLowerCase();
   if (/^[0-9a-f]{4}$|^[0-9a-f]{8}$/.test(short)) {
     return `${short.padStart(8, "0")}-0000-1000-8000-00805f9b34fb`;
   }

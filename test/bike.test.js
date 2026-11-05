@@ -245,11 +245,14 @@ test("the chooser is retried only once: a second bare number fails while choosin
 });
 
 test("short uuid strings, as Bluefy reports them, are expanded to the full form", () => {
-  const canonicalUuid = bikeUuid;
-  assert.equal(canonicalUuid("2a63"), "00002a63-0000-1000-8000-00805f9b34fb");
-  assert.equal(canonicalUuid("2A63"), "00002a63-0000-1000-8000-00805f9b34fb");
-  assert.equal(canonicalUuid("00002a63"), "00002a63-0000-1000-8000-00805f9b34fb");
-  assert.equal(canonicalUuid("F03EE006-4910-473C-BE46-960948C2F59C"), "f03ee006-4910-473c-be46-960948c2f59c");
+  assert.equal(bikeUuid("2a63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(bikeUuid("2A63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(bikeUuid("00002a63"), "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(
+    bikeUuid("F03EE006-4910-473C-BE46-960948C2F59C"),
+    "f03ee006-4910-473c-be46-960948c2f59c",
+  );
+  assert.equal(bikeUuid(0x180), "00000180-0000-1000-8000-00805f9b34fb");
 });
 
 test("watts and cadence arrive when the browser names the power channel '2a63' (Bluefy)", async () => {
