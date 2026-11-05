@@ -38,3 +38,11 @@ test("out-of-range or non-numeric values are refused", () => {
   assert.throws(() => targetPower(Number.NaN), RangeError);
   assert.throws(() => trackResistance("5"), RangeError);
 });
+
+test("accepted boundaries and rounding", () => {
+  assert.equal(hex(trackResistance(200)), "33 25 FF FF FF 40 9C 50"); // 40000 = 0x9C40
+  assert.equal(hex(trackResistance(-200)), "33 25 FF FF FF 00 00 50");
+  assert.equal(hex(targetPower(4000)), "31 25 FF FF FF FF 80 3E"); // 16000 = 0x3E80
+  assert.equal(hex(targetPower(100.1)), "31 25 FF FF FF FF 90 01"); // 400.4 rounds to 400
+  assert.equal(hex(targetPower(100.2)), "31 25 FF FF FF FF 91 01"); // 400.8 rounds to 401
+});
