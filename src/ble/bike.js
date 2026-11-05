@@ -149,20 +149,27 @@ export async function connectBike({
   // so the bike returns to the rider's level or ERG target (spec: link lost / restored).
   let linkDown = false;
   let retryTimer = null;
+  let closed = false; // disconnect() has finished and closed the link
+  let reconnecting = null; // the reconnect set-up in progress, so disconnect() can wait for it
 
   function scheduleReconnect(attempt) {
     const wait = RECONNECT_WAITS_MS[Math.min(attempt, RECONNECT_WAITS_MS.length - 1)];
     retryTimer = clock.setTimeout(async () => {
       retryTimer = null;
       if (closing) return;
+      reconnecting = setUp();
       try {
-        await setUp();
+        await reconnecting;
       } catch {
         if (!closing) scheduleReconnect(attempt + 1);
         return;
+      } finally {
+        reconnecting = null;
       }
       if (closing) {
-        device.gatt.disconnect();
+        // disconnect() owns the link: it sends level 1 and closes. If it already closed (it gave
+        // up waiting for this set-up), close the link this late reconnect just opened.
+        if (closed) device.gatt.disconnect();
         return;
       }
       if (device.gatt.connected === false) {
@@ -282,18 +289,25 @@ export async function connectBike({
     timer = null;
     retryTimer = null;
     pending = null;
-    // The GATT link may be up even while the reconnect set-up is still running.
-    if (device.gatt.connected && writeChar) {
-      let timeoutId = null;
-      const timeout = new Promise((resolve) => {
-        timeoutId = clock.setTimeout(resolve, DISCONNECT_TIMEOUT_MS);
-      });
+    // One time limit for the whole goodbye, so a stalled radio never keeps the link open.
+    let timedOut = false;
+    let timeoutId = null;
+    const timeout = new Promise((resolve) => {
+      timeoutId = clock.setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, DISCONNECT_TIMEOUT_MS);
+    });
+    // A reconnect half-way through: let it finish so the safe order has a valid channel.
+    if (reconnecting) await Promise.race([reconnecting.catch(() => {}), timeout]);
+    if (!timedOut && device.gatt.connected && writeChar) {
       await Promise.race([writeSafeOrder(), timeout]);
-      clock.clearTimeout(timeoutId);
-      safeAborted = true;
-      if (sleepTimer !== null) clock.clearTimeout(sleepTimer);
-      sleepTimer = null;
     }
+    clock.clearTimeout(timeoutId);
+    safeAborted = true;
+    if (sleepTimer !== null) clock.clearTimeout(sleepTimer);
+    sleepTimer = null;
+    closed = true;
     device.gatt.disconnect();
   }
 

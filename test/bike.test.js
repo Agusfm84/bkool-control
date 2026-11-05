@@ -433,17 +433,6 @@ test("a disconnect that never settles still closes the link after a short wait",
   assert.equal(device.gatt.connected, false);
 });
 
-test("disconnect while the reconnect set-up is under way still leaves the bike at level 1", async () => {
-  const { conn, device, write, clock } = await connected();
-  device.gatt.failNextConnects = 99;
-  device.simulateLinkLoss();
-  device.gatt.connected = true; // connect() resolved; services still being set up
-  const done = conn.disconnect();
-  await run(clock, 1000);
-  await done;
-  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(0)));
-});
-
 test("after a disconnect times out, the safe order is not retried on the closed link", async () => {
   const { conn, write, clock } = await connected();
   let rejectSlow;
@@ -467,4 +456,53 @@ test("a second disconnect waits for the first one", async () => {
   const first = conn.disconnect();
   assert.equal(conn.disconnect(), first);
   await first;
+});
+
+test("disconnect during a reconnect set-up waits for it, then sends level 1 before closing", async () => {
+  const { conn, device, write, clock } = await connected();
+  device.simulateLinkLoss();
+  let openGate;
+  const gate = new Promise((resolve) => {
+    openGate = resolve;
+  });
+  const realGetService = device.gatt.getPrimaryService.bind(device.gatt);
+  device.gatt.getPrimaryService = async (uuid) => {
+    await gate; // the services answer slowly
+    return realGetService(uuid);
+  };
+  const retry = clock.advance(1000); // reconnect: connect() succeeds, set-up hangs on services
+  await settle();
+  assert.equal(device.gatt.connected, true);
+  const done = conn.disconnect();
+  openGate();
+  await retry;
+  await run(clock, 1000);
+  await done;
+  assert.equal(hex(write.writes.at(-1)), hex(trackResistance(0)));
+  assert.equal(device.gatt.connected, false);
+});
+
+test("a reconnect that finishes after disconnect gave up is closed again", async () => {
+  const { conn, device, clock } = await connected();
+  device.simulateLinkLoss();
+  let openGate;
+  const gate = new Promise((resolve) => {
+    openGate = resolve;
+  });
+  const realGetService = device.gatt.getPrimaryService.bind(device.gatt);
+  device.gatt.getPrimaryService = async (uuid) => {
+    await gate;
+    return realGetService(uuid);
+  };
+  const retry = clock.advance(1000); // reconnect set-up hangs
+  await settle();
+  const done = conn.disconnect();
+  await run(clock, 2500); // the 2 s limit passes
+  await done;
+  device.gatt.connected = true; // the stalled set-up finally gets through
+  openGate();
+  await retry;
+  await settle();
+  assert.equal(device.gatt.connected, false, "the late reconnect is closed");
+  assert.equal(clock.pendingTimers(), 0);
 });

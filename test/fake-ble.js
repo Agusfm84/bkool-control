@@ -37,6 +37,11 @@ export class FakeCharacteristic extends FakeTarget {
     return this;
   }
   async writeValueWithoutResponse(bytes) {
+    // Like a real browser: no write once the link is down.
+    // A characteristic from before a lost link is invalid until it is fetched again.
+    if (this.stale || (this.device && !this.device.gatt.connected)) {
+      throw Object.assign(new Error("GATT Server is disconnected"), { name: "NetworkError" });
+    }
     if (this.failNextWrites > 0) {
       this.failNextWrites--;
       throw Object.assign(new Error("write failed"), { name: "NetworkError" });
@@ -59,6 +64,7 @@ class FakeService {
     this.asked?.push(uuid);
     const c = this.chars.get(canonicalUuid(uuid));
     if (!c) throw Object.assign(new Error(`no characteristic ${uuid}`), { name: "NotFoundError" });
+    c.stale = false;
     return c;
   }
 }
@@ -96,11 +102,15 @@ export class FakeDevice extends FakeTarget {
         return s;
       },
     };
-    for (const svc of this.services.values()) svc.asked = this.gatt.asked;
+    for (const svc of this.services.values()) {
+      svc.asked = this.gatt.asked;
+      for (const c of svc.chars.values()) c.device = this;
+    }
   }
   /** Test helper: the Bluetooth link is lost without the app asking. */
   simulateLinkLoss() {
     this.gatt.connected = false;
+    for (const svc of this.services.values()) for (const c of svc.chars.values()) c.stale = true;
     this.dispatch("gattserverdisconnected");
   }
 }
