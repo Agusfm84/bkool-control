@@ -12,6 +12,18 @@ const POWER_MEASUREMENT = 0x2a63;
 
 /** Minimum time between two writes to the bike. */
 export const MIN_WRITE_GAP_MS = 250;
+/** Times a failed write is retried before the order is dropped. */
+const MAX_WRITE_RETRIES = 3;
+
+/** Browsers report every UUID as a lowercase 128-bit string: 0x2a63 → "00002a63-0000-…". */
+export function canonicalUuid(uuid) {
+  if (typeof uuid === "number") {
+    return `${uuid.toString(16).padStart(8, "0")}-0000-1000-8000-00805f9b34fb`;
+  }
+  return String(uuid).toLowerCase();
+}
+
+const POWER_UUID = canonicalUuid(POWER_MEASUREMENT);
 
 const defaultClock = {
   now: () => Date.now(),
@@ -25,6 +37,7 @@ function failure(kind, cause) {
 
 /**
  * Asks the user to pick the bike and connects to it.
+ * @param {{bluetooth?: Bluetooth, clock?: object}} [options] injectable for tests
  * @returns {Promise<Bike>} rejects with {kind: 'unsupported'|'cancelled'|'not-found'}
  */
 export async function connectBike({
@@ -36,7 +49,8 @@ export async function connectBike({
   let device;
   try {
     device = await bluetooth.requestDevice({
-      filters: [{ namePrefix: "BKOOL" }, { namePrefix: "Bkool" }],
+      // namePrefix is case-sensitive in Web Bluetooth, so list the spellings in use.
+      filters: [{ namePrefix: "BKOOL" }, { namePrefix: "Bkool" }, { namePrefix: "bkool" }],
       optionalServices: [BKOOL_SERVICE, CYCLING_POWER],
     });
   } catch (err) {
@@ -55,30 +69,33 @@ export async function connectBike({
   let crank = null;
   let bkoolCadence = null;
   let writeChar = null;
+  let closing = false;
 
   function onNotify(event) {
     const char = event.target;
+    const uuid = canonicalUuid(char.uuid);
     const view = char.value;
-    emit("raw", String(char.uuid), view);
-    if (char.uuid === BKOOL_NOTIFY_6) {
+    emit("raw", uuid, view);
+    if (uuid === BKOOL_NOTIFY_6) {
       const c = parseCadence(view);
       if (c !== null) bkoolCadence = c;
-    } else if (char.uuid === POWER_MEASUREMENT) {
+    } else if (uuid === POWER_UUID) {
       const r = cps.parse(view, crank, clock.now());
       crank = r.crank;
       emit("data", { watts: r.watts, cadence: r.cadence ?? bkoolCadence });
     }
   }
 
+  /** Connects and subscribes. Safe to call again after a lost link (used by reconnect). */
   async function setUp() {
+    crank = null;
+    bkoolCadence = null;
     const server = await device.gatt.connect();
     const bkool = await server.getPrimaryService(BKOOL_SERVICE);
     writeChar = await bkool.getCharacteristic(BKOOL_WRITE);
-    const power = await (await server.getPrimaryService(CYCLING_POWER)).getCharacteristic(
-      POWER_MEASUREMENT,
-    );
+    const powerService = await server.getPrimaryService(CYCLING_POWER);
     const notifiers = [
-      power,
+      await powerService.getCharacteristic(POWER_MEASUREMENT),
       await bkool.getCharacteristic(BKOOL_NOTIFY_4),
       await bkool.getCharacteristic(BKOOL_NOTIFY_6),
     ];
@@ -89,30 +106,42 @@ export async function connectBike({
     }
   }
 
+  device.addEventListener("gattserverdisconnected", () => {
+    if (!closing) emit("link", "lost");
+  });
+
   try {
     await setUp();
   } catch (err) {
+    closing = true;
+    device.gatt.disconnect();
     throw failure("not-found", err);
   }
 
-  device.addEventListener("gattserverdisconnected", () => emit("link", "lost"));
-
   // Latest-wins sender: at most one write every MIN_WRITE_GAP_MS; a newer order replaces a
-  // pending one, so fast taps never build up a queue of stale orders.
+  // pending one, so fast taps never build up a queue of stale orders. A failed write is
+  // retried a few times unless a newer order arrived meanwhile.
   let pending = null;
+  let retries = 0;
   let timer = null;
   let lastWriteAt = Number.NEGATIVE_INFINITY;
 
   async function flush() {
     timer = null;
-    if (!pending) return;
+    if (!pending || closing) return;
     const order = pending;
     pending = null;
     lastWriteAt = clock.now();
     try {
       await writeChar.writeValueWithoutResponse(order);
+      retries = 0;
     } catch {
-      // Link problems are reported through onLinkChange; the order is simply dropped.
+      if (!pending && retries < MAX_WRITE_RETRIES) {
+        retries++;
+        pending = order;
+      } else {
+        retries = 0;
+      }
     }
     if (pending) schedule();
   }
@@ -136,9 +165,11 @@ export async function connectBike({
     },
     send(order) {
       pending = order;
+      retries = 0;
       schedule();
     },
     disconnect() {
+      closing = true;
       if (timer !== null) clock.clearTimeout(timer);
       timer = null;
       pending = null;

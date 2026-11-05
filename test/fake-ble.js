@@ -1,4 +1,14 @@
 // A fake Web Bluetooth stack for contract tests: records writes and lets tests push notifications.
+// Like real browsers, it reports every UUID as a lowercase 128-bit string, even when a 16-bit
+// number was used to create or look it up.
+
+/** Same rule browsers apply: 0x2a63 → "00002a63-0000-1000-8000-00805f9b34fb". */
+export function canonicalUuid(uuid) {
+  if (typeof uuid === "number") {
+    return `${uuid.toString(16).padStart(8, "0")}-0000-1000-8000-00805f9b34fb`;
+  }
+  return String(uuid).toLowerCase();
+}
 
 class FakeTarget {
   #listeners = {};
@@ -17,7 +27,7 @@ class FakeTarget {
 export class FakeCharacteristic extends FakeTarget {
   constructor(uuid) {
     super();
-    this.uuid = uuid;
+    this.uuid = canonicalUuid(uuid);
     this.notifying = false;
     this.writes = [];
     this.value = null;
@@ -27,6 +37,10 @@ export class FakeCharacteristic extends FakeTarget {
     return this;
   }
   async writeValueWithoutResponse(bytes) {
+    if (this.failNextWrites > 0) {
+      this.failNextWrites--;
+      throw Object.assign(new Error("write failed"), { name: "NetworkError" });
+    }
     this.writes.push(Uint8Array.from(bytes));
   }
   /** Test helper: the device sends a notification. */
@@ -38,11 +52,11 @@ export class FakeCharacteristic extends FakeTarget {
 
 class FakeService {
   constructor(uuid, chars) {
-    this.uuid = uuid;
+    this.uuid = canonicalUuid(uuid);
     this.chars = new Map(chars.map((c) => [c.uuid, c]));
   }
   async getCharacteristic(uuid) {
-    const c = this.chars.get(uuid);
+    const c = this.chars.get(canonicalUuid(uuid));
     if (!c) throw Object.assign(new Error(`no characteristic ${uuid}`), { name: "NotFoundError" });
     return c;
   }
@@ -53,6 +67,7 @@ export class FakeDevice extends FakeTarget {
     super();
     this.name = name;
     this.services = new Map(services.map((s) => [s.uuid, s]));
+    this.missingService = null;
     this.connectCalls = 0;
     const device = this;
     this.gatt = {
@@ -72,7 +87,8 @@ export class FakeDevice extends FakeTarget {
         device.dispatch("gattserverdisconnected");
       },
       async getPrimaryService(uuid) {
-        const s = device.services.get(uuid);
+        const key = canonicalUuid(uuid);
+        const s = key === device.missingService ? undefined : device.services.get(key);
         if (!s) throw Object.assign(new Error(`no service ${uuid}`), { name: "NotFoundError" });
         return s;
       },

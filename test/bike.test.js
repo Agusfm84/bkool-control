@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { connectBike } from "../src/ble/bike.js";
 import { trackResistance } from "../src/core/fec.js";
-import { BKOOL_SERVICE, fakeBkoolBike, fakeBluetooth, fakeClock } from "./fake-ble.js";
+import {
+  BKOOL_SERVICE,
+  canonicalUuid,
+  fakeBkoolBike,
+  fakeBluetooth,
+  fakeClock,
+} from "./fake-ble.js";
 
 const hex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 const settle = () => new Promise((r) => setImmediate(r));
@@ -32,7 +38,7 @@ test("device request filters on Bkool name prefixes and asks for both services",
   const { bluetooth } = await connected();
   const opts = bluetooth.requests[0];
   const prefixes = opts.filters.map((f) => f.namePrefix);
-  assert.ok(prefixes.includes("BKOOL") && prefixes.includes("Bkool"));
+  for (const p of ["BKOOL", "Bkool", "bkool"]) assert.ok(prefixes.includes(p), `missing ${p}`);
   assert.ok(opts.optionalServices.includes(BKOOL_SERVICE));
   assert.ok(opts.optionalServices.includes(0x1818));
 });
@@ -88,4 +94,47 @@ test("link loss is reported as lost", async () => {
   device.simulateLinkLoss();
   await settle();
   assert.equal(events[0], "lost");
+});
+
+test("the fake reports 128-bit lowercase uuids like a browser", async () => {
+  const { power } = await connected();
+  assert.equal(power.uuid, "00002a63-0000-1000-8000-00805f9b34fb");
+  assert.equal(canonicalUuid(0x1818), "00001818-0000-1000-8000-00805f9b34fb");
+});
+
+test("a deliberate disconnect is not reported as a lost link", async () => {
+  const { conn } = await connected();
+  const events = [];
+  conn.onLinkChange((e) => events.push(e));
+  conn.disconnect();
+  await settle();
+  assert.deepEqual(events, []);
+});
+
+test("a failed write is retried so the bike does not miss the order", async () => {
+  const { conn, write, clock } = await connected();
+  write.failNextWrites = 1;
+  conn.send(trackResistance(7));
+  await clock.advance(0);
+  assert.equal(write.writes.length, 0);
+  await clock.advance(250);
+  assert.equal(write.writes.length, 1);
+  assert.equal(hex(write.writes[0]), hex(trackResistance(7)));
+});
+
+test("a persistent write failure gives up after a few retries", async () => {
+  const { conn, write, clock } = await connected();
+  write.failNextWrites = 99;
+  conn.send(trackResistance(7));
+  await clock.advance(5000);
+  assert.equal(write.failNextWrites, 99 - 4); // 1 attempt + 3 retries, then the order is dropped
+});
+
+test("if a service is missing after connecting, the link is closed again", async () => {
+  const bike = fakeBkoolBike();
+  bike.device.missingService = BKOOL_SERVICE;
+  await assert.rejects(connectBike({ bluetooth: fakeBluetooth(bike.device), clock: fakeClock() }), {
+    kind: "not-found",
+  });
+  assert.equal(bike.device.gatt.connected, false);
 });
